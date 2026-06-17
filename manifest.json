@@ -1,0 +1,23 @@
+{
+  "name": "Tableau de Bord RH — Métallurgie",
+  "short_name": "RH Métal",
+  "description": "Gestion d'équipe, masse salariale et convention collective de la métallurgie (IDCC 3248)",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d0f18",
+  "theme_color": "#7c6cf8",
+  "lang": "fr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

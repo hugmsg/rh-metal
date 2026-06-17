@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Tableau de Bord RH — Convention Métallurgie</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#7c6cf8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RH Métal">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0d0f18;--surface:#141622;--surface2:#1c1f30;--surface3:#222640;
+  --border:#2a2e45;--text:#e2e4f0;--muted:#7880a0;--accent:#7c6cf8;
+  --teal:#00c9a7;--warn:#f59e0b;--danger:#ef4444;--success:#10b981;
+  --blue:#3b82f6;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;
+  --r:12px;--r-sm:8px;--shadow:0 4px 24px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── HEADER ── */
+#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:12px;height:56px;position:sticky;top:0;z-index:100}
+.logo{font-size:15px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px;white-space:nowrap}
+.logo span{font-size:20px}
+.nav{display:flex;gap:2px;margin-left:24px}
+.nav-btn{padding:6px 14px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:500;transition:.15s all}
+.nav-btn:hover{background:var(--surface2);color:var(--text)}
+.nav-btn.active{background:rgba(124,108,248,.15);color:var(--accent)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.badge-alert{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer}
+.badge-ok{background:rgba(16,185,129,.12);color:#6ee7b7;border:1px solid rgba(16,185,129,.25);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600}
+
+/* ── LAYOUT ── */
+.main{padding:20px;max-width:1700px;margin:0 auto}
+.tab{display:none}.tab.active{display:block}
+
+/* ── KPI GRID ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;position:relative;overflow:hidden;transition:.2s transform}
+.kpi:hover{transform:translateY(-2px)}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.kpi.c-accent::before{background:var(--accent)}
+.kpi.c-teal::before{background:var(--teal)}
+.kpi.c-warn::before{background:var(--warn)}
+.kpi.c-blue::before{background:var(--blue)}
+.kpi.c-purple::before{background:var(--purple)}
+.kpi.c-danger::before{background:var(--danger)}
+.kpi-icon{font-size:22px;margin-bottom:6px}
+.kpi-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.kpi-val{font-size:24px;font-weight:800;line-height:1}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.kpi-trend{font-size:11px;margin-top:4px}
+.kpi-trend.up{color:var(--success)}.kpi-trend.dn{color:var(--danger)}
+
+/* ── CHARTS ── */
+.charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.chart-title{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.chart-wrap{position:relative;height:200px}
+
+/* ── ALERTS BAR ── */
+.alerts-bar{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:14px;font-size:12px;color:#fca5a5;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.alerts-bar b{color:#ef4444}
+
+/* ── TABLE WRAPPER ── */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap}
+.section-title{font-size:16px;font-weight:700}
+.actions-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.search{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 12px;color:var(--text);font-size:13px;outline:none;width:200px;transition:.15s}
+.search:focus{border-color:var(--accent)}
+.filter-sel{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+
+/* ── BUTTONS ── */
+.btn{padding:7px 14px;border-radius:var(--r-sm);border:none;cursor:pointer;font-size:13px;font-weight:600;transition:.15s all;display:inline-flex;align-items:center;gap:5px}
+.btn:hover{filter:brightness(1.1)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-teal{background:var(--teal);color:#000}
+.btn-ghost{background:var(--surface2);color:var(--text)}
+.btn-danger{background:rgba(239,68,68,.15);color:var(--danger)}
+.btn-success{background:rgba(16,185,129,.15);color:var(--success)}
+.btn-warn{background:rgba(245,158,11,.15);color:var(--warn)}
+.btn-sm{padding:4px 9px;font-size:11px;border-radius:6px}
+.btn-xs{padding:2px 7px;font-size:11px;border-radius:5px}
+
+/* ── TABLE ── */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:1100px}
+th{padding:10px 12px;text-align:left;font-weight:600;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--text)}
+th .sort-icon{opacity:.4;margin-left:3px}
+td{padding:9px 12px;border-bottom:1px solid rgba(42,46,69,.5);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(124,108,248,.04)}
+tr.exited td{opacity:.5}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
+.b-cdi{background:rgba(16,185,129,.15);color:#10b981}
+.b-cdd{background:rgba(59,130,246,.15);color:#3b82f6}
+.b-apprentissage{background:rgba(245,158,11,.15);color:#f59e0b}
+.b-interim{background:rgba(168,85,247,.15);color:#a855f7}
+.b-partiel{background:rgba(236,72,153,.15);color:#ec4899}
+.b-stage{background:rgba(107,114,128,.15);color:#9ca3af}
+.grp-badge{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;font-size:11px;font-weight:800}
+.grp-A{background:rgba(124,108,248,.2);color:#a89cf8}
+.grp-B{background:rgba(0,201,167,.2);color:#00c9a7}
+.grp-C{background:rgba(59,130,246,.2);color:#60a5fa}
+.grp-D{background:rgba(245,158,11,.2);color:#fbbf24}
+.grp-E{background:rgba(239,68,68,.2);color:#f87171}
+.grp-F{background:rgba(168,85,247,.2);color:#c084fc}
+.grp-G{background:rgba(236,72,153,.2);color:#f472b6}
+.grp-H{background:rgba(20,184,166,.2);color:#2dd4bf}
+.grp-I{background:rgba(249,115,22,.2);color:#fb923c}
+
+/* ── RATE CELLS ── */
+.rate-ok{color:var(--success)}
+.rate-warn{color:var(--warn)}
+.rate-danger{color:var(--danger)}
+.rate-cell{display:flex;align-items:center;gap:3px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot-ok{background:var(--success)}
+.dot-warn{background:var(--warn)}
+.dot-danger{background:var(--danger)}
+
+/* ── MODAL ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;width:760px;max-width:96vw;max-height:92vh;overflow-y:auto}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.modal-title span{font-size:22px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg.full{grid-column:1/-1}
+.fg label{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.fg input,.fg select,.fg textarea{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 11px;color:var(--text);font-size:13px;outline:none;transition:.15s}
+.fg input:focus,.fg select:focus{border-color:var(--accent)}
+.fg select option{background:var(--surface)}
+.modal-hint{background:rgba(124,108,248,.08);border:1px solid rgba(124,108,248,.2);border-radius:var(--r-sm);padding:10px 12px;font-size:12px;color:#a89cf8;margin-top:8px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.mini-calc{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;margin-top:10px;font-size:12px;grid-column:1/-1}
+.mini-calc .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)}
+.mini-calc .row:last-child{border-bottom:none;font-weight:700;color:var(--accent)}
+.mini-calc .row span:last-child{font-weight:600}
+
+/* ── OPTIM TAB ── */
+.opti-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.opti-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+.opti-title{font-size:14px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.slider-lbl{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px}
+input[type=range]{-webkit-appearance:none;width:100%;height:5px;background:var(--border);border-radius:3px;border:none;padding:0;margin:4px 0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer}
+.res-box{background:var(--surface2);border-radius:var(--r-sm);padding:12px;margin-top:10px}
+.res-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border)}
+.res-row:last-child{border-bottom:none;font-weight:700;font-size:13px;color:var(--accent);padding-top:8px}
+.res-row span:last-child{font-weight:600}
+.opti-full{grid-column:1/-1}
+
+/* ── SETTINGS ── */
+.settings-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:14px}
+.settings-title{font-size:14px;font-weight:700;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.ccm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.ccm-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;display:flex;flex-direction:column;gap:6px}
+.ccm-header{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
+.ccm-desc{font-size:10px;color:var(--muted)}
+.ccm-rate input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px;font-weight:600;outline:none}
+.ccm-rate input:focus{border-color:var(--accent)}
+
+/* ── PROJ BANNER ── */
+.proj-banner{background:linear-gradient(135deg,rgba(124,108,248,.1),rgba(0,201,167,.1));border:1px solid rgba(124,108,248,.25);border-radius:var(--r);padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.proj-item{text-align:center}
+.proj-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.proj-val{font-size:22px;font-weight:800;background:linear-gradient(90deg,var(--accent),var(--teal));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+
+/* ── SALARY DETAIL POPUP ── */
+.sal-tip{font-size:11px}
+.sal-tip div{display:flex;justify-content:space-between;gap:16px;padding:2px 0}
+
+/* ── PROGRESS ── */
+.pbar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:4px}
+.pbar-fill{height:100%;border-radius:3px;transition:width .4s}
+.pbar-fill.ok{background:var(--success)}
+.pbar-fill.warn{background:var(--warn)}
+.pbar-fill.danger{background:var(--danger)}
+
+/* ── SUMMARY ROW ── */
+.tbl-footer td{font-weight:700;color:var(--accent);background:rgba(124,108,248,.05);border-top:2px solid var(--border) !important}
+
+/* ── EMPTY ── */
+.empty{text-align:center;padding:48px;color:var(--muted)}
+.empty-ico{font-size:48px;margin-bottom:12px}
+
+/* ── TOOLTIP ── */
+[data-tip]{position:relative;cursor:help}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:#1a1e30;border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:11px;white-space:nowrap;z-index:50;color:var(--text);pointer-events:none}
+
+/* ── PROJ CHART ROW ── */
+.proj-chart-row{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:20px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:900px){
+  .charts-row{grid-template-columns:1fr}
+  .opti-grid{grid-template-columns:1fr}
+  .form-grid,.form-grid-3{grid-template-columns:1fr 1fr}
+  .proj-chart-row{grid-template-columns:1fr}
+}
+@media(max-width:600px){
+  .form-grid,.form-grid-3{grid-template-columns:1fr}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+}
+
+/* ── INLINE EDIT ── */
+td.editable:hover{background:rgba(124,108,248,.08);cursor:pointer}
+.inline-input{background:var(--surface2);border:1px solid var(--accent);border-radius:5px;padding:3px 6px;color:var(--text);font-size:12px;width:80px;outline:none}
+
+/* ── CHECKBOX ── */
+.cb-wrap{display:flex;align-items:center;justify-content:center}
+input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;border-radius:3px}
+th .cb-wrap input[type=checkbox]{width:15px;height:15px}
+tr.selected td{background:rgba(124,108,248,.08) !important}
+
+/* ── BULK BAR ── */
+.bulk-bar{display:none;align-items:center;gap:10px;background:rgba(124,108,248,.12);border:1px solid rgba(124,108,248,.3);border-radius:var(--r-sm);padding:8px 14px;margin-bottom:10px;animation:fadeIn .15s ease}
+.bulk-bar.visible{display:flex}
+.bulk-count{font-size:13px;font-weight:700;color:var(--accent)}
+.bulk-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* ── PRINT ── */
+@media print{
+  #header,.nav-btn:not(.active),.actions-row,.overlay{display:none}
+  body{background:#fff;color:#000}
+  .surface,.surface2{background:#f5f5f5;border:1px solid #ddd}
+  .kpi-val,.proj-val{color:#000 !important;-webkit-text-fill-color:#000 !important}
+}
+
+/* ── MOBILE ── */
+@media(max-width:700px){
+  #header{padding:0 12px;height:52px;gap:8px}
+  .logo-text{display:none}
+  nav{gap:2px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:0 8px}
+  .nav-btn{font-size:11px;padding:6px 10px;white-space:nowrap}
+  .content{padding:10px 8px}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .charts-row{grid-template-columns:1fr}
+  .actions-row{flex-wrap:wrap;gap:6px}
+  .actions-row .search{min-width:100%;order:-1}
+  .settings-grid{grid-template-columns:1fr 1fr}
+  .ccm-grid{grid-template-columns:1fr}
+  .bulk-bar{flex-wrap:wrap;gap:6px}
+  .modal-box{width:95vw;max-width:95vw;padding:16px;max-height:90vh;overflow-y:auto}
+  .form-grid{grid-template-columns:1fr}
+  .fab{bottom:16px;right:16px;width:36px;height:36px;font-size:14px}
+}
+@media(max-width:400px){
+  .kpi-grid{grid-template-columns:1fr}
+}
+
+/* ── SCROLL TO TOP ── */
+.fab{position:fixed;bottom:20px;right:20px;width:42px;height:42px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:18px;cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;z-index:50;opacity:.7;transition:.2s}
+.fab:hover{opacity:1;transform:scale(1.1)}
+
+/* number format helper */
+.num{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="logo"><span>⚙️</span>RH Métallurgie</div>
+  <nav class="nav">
+    <button class="nav-btn active" onclick="showTab('dashboard')">📊 Dashboard</button>
+    <button class="nav-btn" onclick="showTab('team')">👥 Mon équipe</button>
+    <button class="nav-btn" onclick="showTab('optim')">🎯 Optimisation</button>
+    <button class="nav-btn" onclick="showTab('settings')">⚙️ Paramètres</button>
+  </nav>
+  <div class="header-right">
+    <span id="alert-badge" class="badge-alert" onclick="showTab('team');filterAlerts()" style="display:none">⚠️ 0 alertes</span>
+    <span id="ok-badge" class="badge-ok" style="display:none">✅ Conforme</span>
+    <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
+    <button class="btn btn-primary btn-sm" onclick="openModal()">+ Nouveau salarié</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- ═══════════════ TAB: DASHBOARD ═══════════════ -->
+  <div class="tab active" id="tab-dashboard">
+
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <!-- Projection banner -->
+    <div class="proj-banner" id="proj-banner"></div>
+
+    <!-- Alert bar -->
+    <div class="alerts-bar" id="alert-bar" style="display:none"></div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">📋 Répartition types de contrat</div>
+        <div class="chart-wrap"><canvas id="chartContract"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">🏷️ Masse salariale par groupe CCM</div>
+        <div class="chart-wrap"><canvas id="chartGroup"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">📈 Projection masse salariale 12 mois</div>
+        <div class="chart-wrap"><canvas id="chartProj"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Top 5 + heures sup -->
+    <div class="proj-chart-row">
+      <div class="chart-card">
+        <div class="chart-title">💰 Coût mensuel par salarié (brut chargé estimé)</div>
+        <div class="chart-wrap" style="height:220px"><canvas id="chartIndiv"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">⏰ Volume heures supplémentaires / mois</div>
+        <div class="chart-wrap" style="height:220px"><canvas id="chartHSup"></canvas></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════ TAB: ÉQUIPE ═══════════════ -->
+  <div class="tab" id="tab-team">
+    <div class="section-header">
+      <div class="section-title">👥 Gestion de l'équipe</div>
+      <div class="actions-row">
+        <input class="search" type="search" placeholder="🔍 Rechercher…" id="search-input" oninput="renderTable()">
+        <select class="filter-sel" id="filter-contrat" onchange="renderTable()">
+          <option value="">Tous contrats</option>
+          <option>CDI</option><option>CDD</option><option>Apprentissage</option>
+          <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
+        </select>
+        <select class="filter-sel" id="filter-groupe" onchange="renderTable()">
+          <option value="">Tous groupes</option>
+          <option>A</option><option>B</option><option>C</option><option>D</option>
+          <option>E</option><option>F</option><option>G</option><option>H</option><option>I</option>
+        </select>
+        <select class="filter-sel" id="filter-status" onchange="renderTable()">
+          <option value="">Actifs + sortis</option>
+          <option value="active">Actifs seulement</option>
+          <option value="exited">Sortis seulement</option>
+          <option value="alerts">⚠️ Alertes</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="openModal()">+ Ajouter</button>
+      </div>
+    </div>
+
+    <!-- Barre d'actions groupées -->
+    <div class="bulk-bar" id="bulk-bar">
+      <span class="bulk-count" id="bulk-count">0 sélectionné(s)</span>
+      <div class="bulk-sep"></div>
+      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">🗑️ Supprimer</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkExportCSV()">⬇ Exporter sélection</button>
+      <button class="btn btn-warn btn-sm" onclick="bulkSetSortie()">📤 Marquer sortis aujourd'hui</button>
+      <div class="bulk-sep"></div>
+      <button class="btn btn-ghost btn-sm" onclick="clearSelection()">✕ Désélectionner</button>
+    </div>
+
+    <!-- Table -->
+    <div class="tbl-wrap">
+      <table id="main-table">
+        <thead>
+          <tr>
+            <th style="width:32px"><div class="cb-wrap"><input type="checkbox" id="cb-all" onchange="toggleSelectAll(this)"></div></th>
+            <th onclick="sortBy('nom')">Salarié <span class="sort-icon">↕</span></th>
+            <th onclick="sortBy('date_entree')">Entrée <span class="sort-icon">↕</span></th>
+            <th>Sortie</th>
+            <th onclick="sortBy('type_contrat')">Contrat <span class="sort-icon">↕</span></th>
+            <th>Poste</th>
+            <th onclick="sortBy('groupe')">Grp <span class="sort-icon">↕</span></th>
+            <th>Classe</th>
+            <th>H/sem</th>
+            <th>H.Sup/sem</th>
+            <th data-tip="Taux Mini SMIC">SMIC €/h</th>
+            <th data-tip="Taux Mini CCM Métallurgie">Mini CCM</th>
+            <th onclick="sortBy('taux_horaire')" data-tip="Taux horaire salarié">Taux salarié <span class="sort-icon">↕</span></th>
+            <th>Δ vs CCM</th>
+            <th onclick="sortBy('sal_mensuel')">Brut/mois <span class="sort-icon">↕</span></th>
+            <th>H.Sup brut/mois</th>
+            <th>Brut/an</th>
+            <th data-tip="Brut + charges patronales estimées">Coût total/an</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+        <tfoot id="table-foot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════ TAB: OPTIMISATION ═══════════════ -->
+  <div class="tab" id="tab-optim">
+
+    <div class="section-header" style="margin-bottom:16px">
+      <div class="section-title">🎯 Optimisation de la masse salariale</div>
+    </div>
+
+    <div class="opti-grid">
+
+      <!-- SIMULATION SMIC -->
+      <div class="opti-card">
+        <div class="opti-title">📈 Simulation hausse SMIC / Revalorisation</div>
+        <div class="slider-lbl"><span>Hausse générale des taux (%)</span><span id="sim-pct-val">0%</span></div>
+        <input type="range" min="0" max="15" step="0.5" value="0" id="sim-pct" oninput="updateSim()">
+        <div class="slider-lbl" style="margin-top:10px"><span>Appliquer uniquement si taux &lt; CCM min</span>
+          <label><input type="checkbox" id="sim-only-below" onchange="updateSim()"> Only below</label>
+        </div>
+        <div class="res-box" id="sim-result"></div>
+      </div>
+
+      <!-- HEURES SUP -->
+      <div class="opti-card">
+        <div class="opti-title">⏰ Impact heures supplémentaires</div>
+        <div class="slider-lbl"><span>H.sup supplémentaires/sem (tout le monde)</span><span id="hsup-add-val">+0h</span></div>
+        <input type="range" min="-8" max="8" step="0.5" value="0" id="hsup-add" oninput="updateHsup()">
+        <div class="slider-lbl" style="margin-top:8px"><span>% salariés concernés</span><span id="hsup-pct-val">100%</span></div>
+        <input type="range" min="0" max="100" step="5" value="100" id="hsup-pct" oninput="updateHsup()">
+        <div class="res-box" id="hsup-result"></div>
+      </div>
+
+      <!-- EFFECTIF -->
+      <div class="opti-card">
+        <div class="opti-title">👥 Simulation effectif</div>
+        <div class="slider-lbl"><span>Ajouter des ETP (par groupe)</span></div>
+        <div id="etp-sliders"></div>
+        <div class="res-box" id="etp-result"></div>
+      </div>
+
+      <!-- ANALYSE CCM -->
+      <div class="opti-card">
+        <div class="opti-title">⚖️ Analyse conformité CCM</div>
+        <div id="ccm-analysis"></div>
+      </div>
+
+      <!-- TABLEAU OPTI FULL -->
+      <div class="opti-card opti-full">
+        <div class="opti-title">📊 Scénarios comparatifs</div>
+        <div id="scenario-table"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════ TAB: PARAMÈTRES ═══════════════ -->
+  <div class="tab" id="tab-settings">
+
+    <div class="settings-section">
+      <div class="settings-title">💶 Paramètres généraux</div>
+      <div class="settings-grid">
+        <div class="fg"><label>SMIC horaire brut (€)</label>
+          <input type="number" step="0.01" id="s-smic" oninput="saveSettings();refresh()"></div>
+        <div class="fg"><label>Charges patronales estimées (%)</label>
+          <input type="number" step="0.1" id="s-charges" oninput="saveSettings();refresh()"></div>
+        <div class="fg"><label>Heures mensuelles base (35h)</label>
+          <input type="number" step="0.01" id="s-base-h" oninput="saveSettings();refresh()"></div>
+        <div class="fg"><label>Quota H.Sup annuel légal</label>
+          <input type="number" step="1" id="s-quota-hsup" oninput="saveSettings();refresh()"></div>
+        <div class="fg"><label>Majoration H.Sup ≤8h/sem (%)</label>
+          <input type="number" step="1" id="s-maj25" oninput="saveSettings();refresh()"></div>
+        <div class="fg"><label>Majoration H.Sup &gt;8h/sem (%)</label>
+          <input type="number" step="1" id="s-maj50" oninput="saveSettings();refresh()"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-title">🏭 Groupes d'emploi — Convention Collective Métallurgie 2024
+        <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px">Les taux mini CCM sont à vérifier avec les derniers accords de branche</span>
+      </div>
+      <div class="ccm-grid" id="ccm-settings-grid"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-primary" onclick="saveSettingsAll();refresh()">💾 Enregistrer</button>
+      <button class="btn btn-ghost" onclick="resetSettings()">↺ Réinitialiser</button>
+    </div>
+
+    <!-- Backup -->
+    <div class="settings-section" style="margin-top:20px">
+      <div class="settings-title">💾 Sauvegarde & Restauration</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
+        Exportez un fichier JSON pour sauvegarder <b>toutes vos données</b> (salariés, paramètres, taux CCM personnalisés).
+        Pour synchroniser entre appareils, transférez ce fichier et importez-le sur l'autre appareil.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="exportJSON()">⬇️ Exporter sauvegarde (.json)</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('import-json-input').click()">⬆️ Importer sauvegarde (.json)</button>
+        <input type="file" id="import-json-input" accept=".json" style="display:none" onchange="importJSON(this)">
+      </div>
+      <p style="color:var(--muted);font-size:11px;margin-top:10px">
+        ℹ️ L'import remplace toutes les données actuelles. Faites un export avant d'importer.
+      </p>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- ── FAB ── -->
+<button class="fab" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<!-- ═══════════════ MODAL ADD/EDIT ═══════════════ -->
+<div class="overlay" id="modal-overlay">
+<div class="modal">
+  <div class="modal-title" id="modal-title"><span>👤</span> Nouveau salarié</div>
+  <input type="hidden" id="edit-id">
+
+  <div class="form-grid">
+    <div class="fg"><label>Nom</label><input id="f-nom" placeholder="MARTIN"></div>
+    <div class="fg"><label>Prénom</label><input id="f-prenom" placeholder="Jean"></div>
+    <div class="fg"><label>Date d'entrée</label><input id="f-entree" type="date"></div>
+    <div class="fg"><label>Date de sortie (si applicable)</label><input id="f-sortie" type="date"></div>
+    <div class="fg"><label>Type de contrat</label>
+      <select id="f-contrat">
+        <option>CDI</option><option>CDD</option><option>Apprentissage</option>
+        <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
+      </select>
+    </div>
+    <div class="fg"><label>Poste / Fonction</label><input id="f-poste" placeholder="Opérateur de production"></div>
+    <div class="fg"><label>Classe CCM (1 → 18) — IDCC 3248</label>
+      <select id="f-classe" onchange="updateModalCalc()">
+        <option value="1">Classe 1 — Grp A | Exécution simple (21 700€/an brut)</option>
+        <option value="2">Classe 2 — Grp A | Exécution simple+ (21 850€/an brut)</option>
+        <option value="3">Classe 3 — Grp B | Qualifié (22 450€/an brut)</option>
+        <option value="4">Classe 4 — Grp B | Qualifié+ (23 400€/an brut)</option>
+        <option value="5">Classe 5 — Grp C | Technicien·ne (24 250€/an brut)</option>
+        <option value="6">Classe 6 — Grp C | Technicien·ne / Bac+2 (25 550€/an brut)</option>
+        <option value="7">Classe 7 — Grp D | Tech. supérieur (26 400€/an brut)</option>
+        <option value="8">Classe 8 — Grp D | Tech. supérieur+ (28 450€/an brut)</option>
+        <option value="9">Classe 9 — Grp E | Maîtrise (30 500€/an brut)</option>
+        <option value="10">Classe 10 — Grp E | Maîtrise confirmée (33 700€/an brut)</option>
+        <option value="11">Classe 11 — Grp F | Cadre / Bac+5 (34 900€/an brut)</option>
+        <option value="12">Classe 12 — Grp F | Cadre confirmé (36 700€/an brut)</option>
+        <option value="13">Classe 13 — Grp G | Cadre senior (40 000€/an brut)</option>
+        <option value="14">Classe 14 — Grp G | Cadre senior+ (43 900€/an brut)</option>
+        <option value="15">Classe 15 — Grp H | Haute responsabilité (47 000€/an brut)</option>
+        <option value="16">Classe 16 — Grp H | Direction de service (52 000€/an brut)</option>
+        <option value="17">Classe 17 — Grp I | Cadre dirigeant (59 300€/an brut)</option>
+        <option value="18">Classe 18 — Grp I | Direction opérationnelle (68 000€/an brut)</option>
+      </select>
+    </div>
+    <div class="fg" style="justify-content:center;align-items:center">
+      <label>Groupe CCM (auto)</label>
+      <div id="f-groupe-display" style="width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;background:rgba(124,108,248,.2);color:#a89cf8;margin-top:4px">A</div>
+      <input type="hidden" id="f-groupe" value="A">
+    </div>
+    <div class="fg"><label>Heures contractuelles / semaine</label><input id="f-heures" type="number" value="35" step="0.5" oninput="updateModalCalc()"></div>
+    <div class="fg"><label>H.Supplémentaires habituelles / sem</label><input id="f-hsup" type="number" value="0" step="0.5" oninput="updateModalCalc()"></div>
+    <div class="fg"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
+    <div class="fg"><label>Notes / Observations</label><input id="f-notes" placeholder="Optionnel"></div>
+
+    <!-- Mini calcul inline -->
+    <div class="mini-calc full" id="modal-calc">
+      <div class="row"><span>Taux mini SMIC</span><span id="mc-smic">—</span></div>
+      <div class="row"><span>Taux mini CCM (Groupe)</span><span id="mc-ccm">—</span></div>
+      <div class="row"><span>Salaire brut mensuel base</span><span id="mc-base">—</span></div>
+      <div class="row"><span>H.Sup (mensuel majoré)</span><span id="mc-hsup">—</span></div>
+      <div class="row"><span>💰 Salaire brut mensuel total</span><span id="mc-total">—</span></div>
+      <div class="row"><span>📅 Brut annuel estimé</span><span id="mc-annual">—</span></div>
+      <div class="row"><span>🏢 Coût employeur annuel (chargé)</span><span id="mc-charged">—</span></div>
+    </div>
+
+  </div>
+
+  <div class="modal-hint" id="modal-hint"></div>
+
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveEmployee()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ SCRIPT ═══════════════ -->
+<script>
+// ═══════════════════════════════════════════
+// DATA DEFAULTS
+// ═══════════════════════════════════════════
+const DEFAULT_SETTINGS = {
+  smic: 12.31,   // SMIC au 1er juin 2026 (revalorisation +2,41%)
+  charges: 42,
+  baseH: 151.67, // Base 35h/semaine × 52/12
+  quotaHSup: 220,
+  maj25: 25,
+  maj50: 50,
+};
+
+// ── CCM Métallurgie IDCC 3248 — Grille SMH 2024 (toujours en vigueur en 2026) ──
+// 18 classes regroupées par paires en 9 groupes (A→I)
+// Source : UIMM / gestionsociale.fr — Pas de revalorisation signée en 2025
+// NB : Classes 1 et 2 (Groupe A) ont un SMH < SMIC → SMIC s'applique obligatoirement
+const DEFAULT_CCM = {
+  1:  {groupe:'A',label:'Classe 1',smhAnnuel:21700, smhMensuel:1808, tauxMin:11.92, categorie:'Non-cadre', desc:"Exécution simple, travaux répétitifs sous instructions précises"},
+  2:  {groupe:'A',label:'Classe 2',smhAnnuel:21850, smhMensuel:1821, tauxMin:12.01, categorie:'Non-cadre', desc:"Exécution simple, légère technicité ou polyvalence"},
+  3:  {groupe:'B',label:'Classe 3',smhAnnuel:22450, smhMensuel:1871, tauxMin:12.34, categorie:'Non-cadre', desc:'Qualifié, autonomie limitée dans un périmètre défini'},
+  4:  {groupe:'B',label:'Classe 4',smhAnnuel:23400, smhMensuel:1950, tauxMin:12.86, categorie:'Non-cadre', desc:'Qualifié, autonomie plus large, contribution active'},
+  5:  {groupe:'C',label:'Classe 5',smhAnnuel:24250, smhMensuel:2021, tauxMin:13.33, categorie:'Non-cadre', desc:'Technicien·ne, maîtrise technique du poste'},
+  6:  {groupe:'C',label:'Classe 6',smhAnnuel:25550, smhMensuel:2129, tauxMin:14.04, categorie:'Non-cadre', desc:'Technicien·ne confirmé·e — seuil accueil Bac+2 (BTS/DUT)'},
+  7:  {groupe:'D',label:'Classe 7',smhAnnuel:26400, smhMensuel:2200, tauxMin:14.51, categorie:'Non-cadre', desc:'Technicien·ne supérieur·e, polyvalence avancée'},
+  8:  {groupe:'D',label:'Classe 8',smhAnnuel:28450, smhMensuel:2371, tauxMin:15.63, categorie:'Non-cadre', desc:'Technicien·ne supérieur·e confirmé·e, expertise reconnue'},
+  9:  {groupe:'E',label:'Classe 9',smhAnnuel:30500, smhMensuel:2542, tauxMin:16.76, categorie:'Non-cadre', desc:'Agent·e de maîtrise, coordination d\'équipe'},
+  10: {groupe:'E',label:'Classe 10',smhAnnuel:33700, smhMensuel:2808, tauxMin:18.51, categorie:'Non-cadre', desc:'Maîtrise confirmée, expertise opérationnelle élargie'},
+  11: {groupe:'F',label:'Classe 11',smhAnnuel:34900, smhMensuel:2908, tauxMin:19.17, categorie:'Cadre',     desc:'Cadre débutant — seuil accueil Bac+5 / ingénieur'},
+  12: {groupe:'F',label:'Classe 12',smhAnnuel:36700, smhMensuel:3058, tauxMin:20.16, categorie:'Cadre',     desc:'Cadre, expertise technique ou managériale confirmée'},
+  13: {groupe:'G',label:'Classe 13',smhAnnuel:40000, smhMensuel:3333, tauxMin:21.98, categorie:'Cadre',     desc:'Cadre senior, responsabilités managériales importantes'},
+  14: {groupe:'G',label:'Classe 14',smhAnnuel:43900, smhMensuel:3658, tauxMin:24.12, categorie:'Cadre',     desc:'Cadre senior+, management multi-équipes'},
+  15: {groupe:'H',label:'Classe 15',smhAnnuel:47000, smhMensuel:3917, tauxMin:25.83, categorie:'Cadre',     desc:'Cadre confirmé haute responsabilité, direction de département'},
+  16: {groupe:'H',label:'Classe 16',smhAnnuel:52000, smhMensuel:4333, tauxMin:28.57, categorie:'Cadre',     desc:'Direction de service, forte autonomie stratégique'},
+  17: {groupe:'I',label:'Classe 17',smhAnnuel:59300, smhMensuel:4942, tauxMin:32.59, categorie:'Cadre',     desc:'Cadre dirigeant, expert très haut niveau'},
+  18: {groupe:'I',label:'Classe 18',smhAnnuel:68000, smhMensuel:5667, tauxMin:37.37, categorie:'Cadre',     desc:'Direction opérationnelle, impact stratégique majeur'},
+};
+
+const CONTRACT_COLORS = {
+  CDI:'#10b981', CDD:'#3b82f6', Apprentissage:'#f59e0b',
+  Intérim:'#a855f7', 'Temps partiel':'#ec4899', Stage:'#9ca3af'
+};
+
+// GROUP_COLORS is now a function: getGroupeColors()
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let employees = [];
+let settings = {...DEFAULT_SETTINGS};
+let ccmClasses = JSON.parse(JSON.stringify(DEFAULT_CCM));
+let sortField = 'nom', sortDir = 1;
+let charts = {};
+
+// Helpers CCM
+function getCcmClass(classeNum) {
+  return ccmClasses[parseInt(classeNum)] || ccmClasses[1];
+}
+function getCcmMinRate(classeNum) {
+  // Taux horaire convention (peut être sous SMIC pour classes 1-2)
+  return getCcmClass(classeNum).tauxMin;
+}
+function getEffectiveMin(classeNum) {
+  // Minimum légal effectif = max(taux CCM, SMIC)
+  return Math.max(getCcmMinRate(classeNum), settings.smic);
+}
+function getGroupeFromClasse(classeNum) {
+  return getCcmClass(classeNum).groupe;
+}
+function getGroupeColors() {
+  return {A:'#a89cf8',B:'#00c9a7',C:'#60a5fa',D:'#fbbf24',E:'#f87171',F:'#c084fc',G:'#f472b6',H:'#2dd4bf',I:'#fb923c'};
+}
+// Retrocompat: some employees might have old 'groupe' field without classe_num
+function resolveClasse(emp) {
+  if (emp.classe_num && parseInt(emp.classe_num)) return parseInt(emp.classe_num);
+  // Map old groupe → default classe
+  const defaultMap = {A:1,B:3,C:5,D:7,E:9,F:11,G:13,H:15,I:17};
+  return defaultMap[emp.groupe] || 1;
+}
+
+// ═══════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════
+function loadData() {
+  try {
+    const emp = localStorage.getItem('rh_employees');
+    if (emp) employees = JSON.parse(emp);
+    const set = localStorage.getItem('rh_settings');
+    if (set) settings = {...DEFAULT_SETTINGS, ...JSON.parse(set)};
+    const ccm = localStorage.getItem('rh_ccm');
+    if (ccm) {
+      const saved = JSON.parse(ccm);
+      // Support both new (numeric keys) and old (letter keys) format
+      if (saved[1]) ccmClasses = {...DEFAULT_CCM, ...saved};
+    }
+  } catch(e) {}
+  if (!employees.length) employees = SAMPLE_EMPLOYEES();
+}
+
+function saveData() {
+  localStorage.setItem('rh_employees', JSON.stringify(employees));
+}
+function saveSettings() {
+  settings.smic = parseFloat(document.getElementById('s-smic').value) || DEFAULT_SETTINGS.smic;
+  settings.charges = parseFloat(document.getElementById('s-charges').value) || DEFAULT_SETTINGS.charges;
+  settings.baseH = parseFloat(document.getElementById('s-base-h').value) || DEFAULT_SETTINGS.baseH;
+  settings.quotaHSup = parseFloat(document.getElementById('s-quota-hsup').value) || DEFAULT_SETTINGS.quotaHSup;
+  settings.maj25 = parseFloat(document.getElementById('s-maj25').value) || DEFAULT_SETTINGS.maj25;
+  settings.maj50 = parseFloat(document.getElementById('s-maj50').value) || DEFAULT_SETTINGS.maj50;
+  localStorage.setItem('rh_settings', JSON.stringify(settings));
+}
+function saveCcm() {
+  Object.keys(ccmClasses).forEach(c => {
+    const el = document.getElementById('ccm-min-' + c);
+    if (el) ccmClasses[c].tauxMin = parseFloat(el.value) || ccmClasses[c].tauxMin;
+  });
+  localStorage.setItem('rh_ccm', JSON.stringify(ccmClasses));
+}
+function saveSettingsAll() { saveSettings(); saveCcm(); }
+function resetSettings() {
+  settings = {...DEFAULT_SETTINGS};
+  ccmClasses = JSON.parse(JSON.stringify(DEFAULT_CCM));
+  localStorage.removeItem('rh_settings');
+  localStorage.removeItem('rh_ccm');
+  renderSettings();
+  refresh();
+}
+
+// ═══════════════════════════════════════════
+// CALCULATIONS
+// ═══════════════════════════════════════════
+const WEEKS_PER_MONTH = 52/12;
+
+function calcSalary(emp, overrideTaux) {
+  const rate = overrideTaux !== undefined ? overrideTaux : (parseFloat(emp.taux_horaire) || 0);
+  const hSem = parseFloat(emp.heures_semaine) || 35;
+  const hSup = parseFloat(emp.heures_sup_semaine) || 0;
+  const totalSem = hSem + hSup;
+  const overSem = Math.max(0, totalSem - 35); // heures au-delà de 35h
+  const maj25Sem = Math.min(overSem, 8);
+  const maj50Sem = Math.max(0, overSem - 8);
+
+  const baseH = Math.min(hSem, 35) * WEEKS_PER_MONTH;
+  const sup25H = maj25Sem * WEEKS_PER_MONTH;
+  const sup50H = maj50Sem * WEEKS_PER_MONTH;
+
+  const basePay = baseH * rate;
+  const sup25Pay = sup25H * rate * (1 + settings.maj25/100);
+  const sup50Pay = sup50H * rate * (1 + settings.maj50/100);
+  const totalMonthly = basePay + sup25Pay + sup50Pay;
+  const totalAnnual = totalMonthly * 12;
+  const costAnnual = totalAnnual * (1 + settings.charges/100);
+  const hSupMonth = (sup25H + sup50H);
+  const hSupAnnual = hSupMonth * 12;
+
+  return {
+    rate, baseH, sup25H, sup50H,
+    basePay, sup25Pay, sup50Pay,
+    monthly: totalMonthly,
+    annual: totalAnnual,
+    costAnnual, hSupMonth, hSupAnnual,
+    supPay: sup25Pay + sup50Pay,
+  };
+}
+
+function getAlerts(emp) {
+  const alerts = [];
+  const rate = parseFloat(emp.taux_horaire) || 0;
+  const classeNum = resolveClasse(emp);
+  const ccmTaux = getCcmMinRate(classeNum);
+  const effMin = getEffectiveMin(classeNum);
+  const cl = getCcmClass(classeNum);
+  if (rate > 0 && rate < settings.smic) {
+    alerts.push({type:'danger', msg:`Taux (${rate.toFixed(2)}€) < SMIC (${settings.smic.toFixed(2)}€) — ⛔ illégal`});
+  } else if (rate > 0 && ccmTaux > settings.smic && rate < ccmTaux) {
+    alerts.push({type:'warn', msg:`Taux (${rate.toFixed(2)}€) < Mini CCM Cl.${classeNum}/${cl.groupe} (${ccmTaux.toFixed(2)}€)`});
+  }
+  const sal = calcSalary(emp);
+  if (sal.hSupAnnual > settings.quotaHSup) {
+    alerts.push({type:'warn', msg:`H.Sup annuelles (${Math.round(sal.hSupAnnual)}h) > quota légal (${settings.quotaHSup}h)`});
+  }
+  return alerts;
+}
+
+function getActiveEmployees() {
+  return employees.filter(e => !e.date_sortie || new Date(e.date_sortie) > new Date());
+}
+
+function aggregatePayroll(emps) {
+  let monthly=0,annual=0,cost=0,hSupMonth=0,headcount=emps.length;
+  emps.forEach(e => {
+    const s = calcSalary(e);
+    monthly += s.monthly;
+    annual += s.annual;
+    cost += s.costAnnual;
+    hSupMonth += s.hSupMonth;
+  });
+  return {monthly, annual, cost, hSupMonth, headcount};
+}
+
+// ═══════════════════════════════════════════
+// RENDER DASHBOARD
+// ═══════════════════════════════════════════
+function renderDashboard() {
+  const active = getActiveEmployees();
+  const agg = aggregatePayroll(active);
+  const allAlerts = active.flatMap(e => getAlerts(e).map(a => ({...a, emp: e})));
+  const alertCount = allAlerts.length;
+  const avgRate = active.length ? active.reduce((s,e)=>s+(parseFloat(e.taux_horaire)||0),0)/active.length : 0;
+  const cdiCount = active.filter(e=>e.type_contrat==='CDI').length;
+  const hSupPct = agg.monthly ? (active.reduce((s,e)=>s+calcSalary(e).supPay,0)/agg.monthly*100) : 0;
+
+  // KPIs
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="kpi c-accent"><div class="kpi-icon">👥</div><div class="kpi-lbl">Effectif actif</div><div class="kpi-val num">${active.length}</div><div class="kpi-sub">${cdiCount} CDI · ${active.length-cdiCount} autres</div></div>
+    <div class="kpi c-teal"><div class="kpi-icon">💶</div><div class="kpi-lbl">Masse salariale / mois</div><div class="kpi-val num">${fmt(agg.monthly)}</div><div class="kpi-sub">Brut salarié</div></div>
+    <div class="kpi c-blue"><div class="kpi-icon">📅</div><div class="kpi-lbl">Masse salariale / an</div><div class="kpi-val num">${fmt(agg.annual)}</div><div class="kpi-sub">Brut annuel</div></div>
+    <div class="kpi c-purple"><div class="kpi-icon">🏢</div><div class="kpi-lbl">Coût total employeur / an</div><div class="kpi-val num">${fmt(agg.cost)}</div><div class="kpi-sub">Brut + ${settings.charges}% charges</div></div>
+    <div class="kpi c-warn"><div class="kpi-icon">⏱️</div><div class="kpi-lbl">H.Sup / mois total</div><div class="kpi-val num">${fmtH(agg.hSupMonth)}</div><div class="kpi-sub">${pct(hSupPct)} de la masse sal.</div></div>
+    <div class="kpi ${alertCount>0?'c-danger':'c-teal'}"><div class="kpi-icon">${alertCount>0?'⚠️':'✅'}</div><div class="kpi-lbl">Alertes conformité</div><div class="kpi-val">${alertCount}</div><div class="kpi-sub">${alertCount===0?'Tout conforme':'Vérifier SMIC / CCM'}</div></div>
+    <div class="kpi c-accent"><div class="kpi-icon">💰</div><div class="kpi-lbl">Taux horaire moyen</div><div class="kpi-val num">${avgRate.toFixed(2)}€</div><div class="kpi-sub">vs SMIC ${settings.smic.toFixed(2)}€</div></div>
+    <div class="kpi c-teal"><div class="kpi-icon">📊</div><div class="kpi-lbl">Coût / salarié / mois</div><div class="kpi-val num">${active.length?fmt(agg.cost/12/active.length):'—'}</div><div class="kpi-sub">Coût employeur moyen</div></div>
+  `;
+
+  // Projection banner
+  document.getElementById('proj-banner').innerHTML = `
+    <div class="proj-item"><div class="proj-lbl">Brut mensuel</div><div class="proj-val num">${fmt(agg.monthly)}</div></div>
+    <div class="proj-item"><div class="proj-lbl">Brut annuel</div><div class="proj-val num">${fmt(agg.annual)}</div></div>
+    <div class="proj-item"><div class="proj-lbl">Coût employeur annuel</div><div class="proj-val num">${fmt(agg.cost)}</div></div>
+    <div class="proj-item"><div class="proj-lbl">Coût H.Sup mensuelles</div><div class="proj-val num">${fmt(active.reduce((s,e)=>s+calcSalary(e).supPay,0))}</div></div>
+    <div class="proj-item"><div class="proj-lbl">ETP moyen (35h)</div><div class="proj-val num">${active.reduce((s,e)=>s+(parseFloat(e.heures_semaine)||35)/35,0).toFixed(1)}</div></div>
+  `;
+
+  // Alert bar
+  const bar = document.getElementById('alert-bar');
+  if (alertCount > 0) {
+    bar.style.display='flex';
+    bar.innerHTML = `<b>⚠️ ${alertCount} alerte(s) :</b> ` + allAlerts.slice(0,5).map(a=>`<span>${a.emp.prenom} ${a.emp.nom} — ${a.msg}</span>`).join(' · ') + (allAlerts.length>5?` · <em>et ${allAlerts.length-5} autres</em>`:'');
+  } else { bar.style.display='none'; }
+
+  // Header badges
+  if (alertCount>0) {
+    document.getElementById('alert-badge').style.display='';
+    document.getElementById('alert-badge').textContent=`⚠️ ${alertCount} alerte${alertCount>1?'s':''}`;
+    document.getElementById('ok-badge').style.display='none';
+  } else {
+    document.getElementById('alert-badge').style.display='none';
+    document.getElementById('ok-badge').style.display='';
+  }
+
+  renderCharts(active, agg);
+}
+
+// ═══════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════
+function destroyChart(id) { if(charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function renderCharts(active, agg) {
+  // 1. Contract donut
+  destroyChart('contract');
+  const contractCounts = {};
+  active.forEach(e=>{ contractCounts[e.type_contrat]=(contractCounts[e.type_contrat]||0)+1; });
+  charts.contract = new Chart(document.getElementById('chartContract'), {
+    type:'doughnut',
+    data:{
+      labels:Object.keys(contractCounts),
+      datasets:[{data:Object.values(contractCounts),backgroundColor:Object.keys(contractCounts).map(k=>CONTRACT_COLORS[k]||'#888'),borderWidth:0,hoverOffset:4}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#8b90a8',font:{size:11},boxWidth:10}}}}
+  });
+
+  const GC = getGroupeColors();
+  // 2. Group bar (masse salariale)
+  destroyChart('group');
+  const groupPay = {};
+  active.forEach(e=>{
+    const g = getGroupeFromClasse(resolveClasse(e));
+    groupPay[g] = (groupPay[g]||0) + calcSalary(e).monthly;
+  });
+  const grpKeys = Object.keys(groupPay).sort();
+  charts.group = new Chart(document.getElementById('chartGroup'), {
+    type:'bar',
+    data:{
+      labels:grpKeys.map(g=>`Grp ${g}`),
+      datasets:[{label:'Masse sal. mensuelle (€)',data:grpKeys.map(g=>Math.round(groupPay[g])),backgroundColor:grpKeys.map(g=>GC[g]||'#888'),borderRadius:6,borderWidth:0}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b90a8'}},y:{ticks:{color:'#8b90a8'},grid:{color:'rgba(42,46,69,.4)'}}}}
+  });
+
+  // 3. 12-month projection line
+  destroyChart('proj');
+  const base = agg.monthly;
+  const months = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const now = new Date().getMonth();
+  const labels = months.slice(now).concat(months.slice(0,now));
+  const projData = labels.map((_,i)=>Math.round(base*(1+i*0.001)));
+  const costData = projData.map(v=>Math.round(v*(1+settings.charges/100)));
+  charts.proj = new Chart(document.getElementById('chartProj'), {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Brut mensuel',data:projData,borderColor:'#a89cf8',backgroundColor:'rgba(124,108,248,.1)',fill:true,tension:.4,pointRadius:3,borderWidth:2},
+        {label:'Coût employeur',data:costData,borderColor:'#00c9a7',backgroundColor:'rgba(0,201,167,.05)',fill:true,tension:.4,pointRadius:3,borderWidth:2}
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b90a8',font:{size:11},boxWidth:10}}},scales:{x:{ticks:{color:'#8b90a8'}},y:{ticks:{color:'#8b90a8'},grid:{color:'rgba(42,46,69,.4)'}}}}
+  });
+
+  // 4. Individual cost bar
+  destroyChart('indiv');
+  const sortedByPay = [...active].sort((a,b)=>calcSalary(b).monthly-calcSalary(a).monthly).slice(0,12);
+  charts.indiv = new Chart(document.getElementById('chartIndiv'), {
+    type:'bar',
+    data:{
+      labels:sortedByPay.map(e=>`${e.prenom[0]||''}. ${e.nom}`),
+      datasets:[
+        {label:'Brut mensuel',data:sortedByPay.map(e=>Math.round(calcSalary(e).monthly)),backgroundColor:'rgba(124,108,248,.7)',borderRadius:4,borderWidth:0},
+        {label:'H.Sup',data:sortedByPay.map(e=>Math.round(calcSalary(e).supPay)),backgroundColor:'rgba(245,158,11,.7)',borderRadius:4,borderWidth:0}
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b90a8',font:{size:10},boxWidth:8}}},scales:{x:{ticks:{color:'#8b90a8',font:{size:10}},stacked:true},y:{ticks:{color:'#8b90a8'},grid:{color:'rgba(42,46,69,.4)'},stacked:true}}}
+  });
+
+  // 5. H.Sup bar
+  destroyChart('hsup');
+  const withHsup = active.filter(e=>(parseFloat(e.heures_sup_semaine)||0)>0);
+  charts.hsup = new Chart(document.getElementById('chartHSup'), {
+    type:'bar',
+    data:{
+      labels:withHsup.map(e=>`${e.prenom[0]||''}. ${e.nom}`),
+      datasets:[{label:'H.Sup / mois',data:withHsup.map(e=>+calcSalary(e).hSupMonth.toFixed(1)),backgroundColor:withHsup.map(e=>{const h=calcSalary(e).hSupAnnual;return h>settings.quotaHSup?'#ef4444':h>settings.quotaHSup*0.8?'#f59e0b':'#10b981';}),borderRadius:5,borderWidth:0}]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b90a8',font:{size:10}}},y:{ticks:{color:'#8b90a8'},grid:{color:'rgba(42,46,69,.4)'}}}}
+  });
+}
+
+// ═══════════════════════════════════════════
+// RENDER TABLE
+// ═══════════════════════════════════════════
+let sortState = {field:'nom', dir:1};
+function sortBy(field) {
+  if (sortState.field===field) sortState.dir*=-1;
+  else { sortState.field=field; sortState.dir=1; }
+  renderTable();
+}
+
+// ── Multi-select ─────────────────────────────
+let selectedIds = new Set();
+
+function toggleSelectAll(cb) {
+  const boxes = document.querySelectorAll('#table-body input[type=checkbox]');
+  boxes.forEach(b => {
+    const id = b.dataset.id;
+    b.checked = cb.checked;
+    if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+    b.closest('tr').classList.toggle('selected', cb.checked);
+  });
+  updateBulkBar();
+}
+
+function toggleRow(id, cb) {
+  if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+  cb.closest('tr').classList.toggle('selected', cb.checked);
+  // sync select-all checkbox
+  const allBoxes = document.querySelectorAll('#table-body input[type=checkbox]');
+  const allChecked = [...allBoxes].every(b=>b.checked);
+  const cbAll = document.getElementById('cb-all');
+  if (cbAll) cbAll.checked = allChecked && allBoxes.length > 0;
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const count = document.getElementById('bulk-count');
+  const n = selectedIds.size;
+  if (n > 0) {
+    bar.classList.add('visible');
+    count.textContent = `${n} salarié(s) sélectionné(s)`;
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('#table-body input[type=checkbox]').forEach(b=>{
+    b.checked=false;
+    b.closest('tr').classList.remove('selected');
+  });
+  const cbAll = document.getElementById('cb-all');
+  if (cbAll) cbAll.checked = false;
+  updateBulkBar();
+}
+
+function bulkDelete() {
+  if (!selectedIds.size) return;
+  const names = employees.filter(e=>selectedIds.has(e.id)).map(e=>`${e.prenom} ${e.nom}`).join(', ');
+  if (!confirm(`Supprimer ${selectedIds.size} salarié(s) ?\n${names}`)) return;
+  employees = employees.filter(e=>!selectedIds.has(e.id));
+  selectedIds.clear();
+  saveData();
+  renderTable();
+  renderDashboard();
+  updateBulkBar();
+  const cbAll = document.getElementById('cb-all');
+  if (cbAll) cbAll.checked = false;
+}
+
+function bulkSetSortie() {
+  if (!selectedIds.size) return;
+  const today = new Date().toISOString().slice(0,10);
+  if (!confirm(`Marquer ${selectedIds.size} salarié(s) comme sortis aujourd'hui (${fmtDate(today)}) ?`)) return;
+  employees.forEach(e=>{ if (selectedIds.has(e.id)) e.date_sortie = today; });
+  saveData();
+  clearSelection();
+  renderTable();
+  renderDashboard();
+}
+
+function bulkExportCSV() {
+  const sel = employees.filter(e=>selectedIds.has(e.id));
+  if (!sel.length) return;
+  const header = ['Nom','Prénom','Entrée','Sortie','Contrat','Poste','Groupe','Classe','H/sem','H.Sup/sem','Taux €/h','Brut/mois','Brut/an','Coût/an'];
+  const rows = sel.map(e=>{
+    const s = calcSalary(e);
+    const cl = getCcmClass(resolveClasse(e));
+    return [e.nom,e.prenom,e.date_entree||'',e.date_sortie||'',e.type_contrat||'',e.poste||'',cl.groupe,`Cl.${resolveClasse(e)}`,e.heures_semaine||35,e.heures_sup_semaine||0,e.taux_horaire||'',s.monthly.toFixed(2),s.annual.toFixed(2),s.costAnnual.toFixed(2)];
+  });
+  const csv = [header,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`selection_rh_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+}
+
+function renderTable() {
+  const search = document.getElementById('search-input').value.toLowerCase();
+  const filterContract = document.getElementById('filter-contrat').value;
+  const filterGroup = document.getElementById('filter-groupe').value;
+  const filterStatus = document.getElementById('filter-status').value;
+
+  let rows = [...employees];
+
+  // Filters
+  if (search) rows = rows.filter(e=>`${e.nom} ${e.prenom} ${e.poste}`.toLowerCase().includes(search));
+  if (filterContract) rows = rows.filter(e=>e.type_contrat===filterContract);
+  if (filterGroup) rows = rows.filter(e=>e.groupe===filterGroup);
+  if (filterStatus==='active') rows = rows.filter(e=>!e.date_sortie||new Date(e.date_sortie)>new Date());
+  else if (filterStatus==='exited') rows = rows.filter(e=>e.date_sortie&&new Date(e.date_sortie)<=new Date());
+  else if (filterStatus==='alerts') rows = rows.filter(e=>getAlerts(e).length>0);
+
+  // Sort
+  const f = sortState.field;
+  rows.sort((a,b)=>{
+    let va = a[f]||'', vb = b[f]||'';
+    if (f==='sal_mensuel') { va=calcSalary(a).monthly; vb=calcSalary(b).monthly; }
+    if (typeof va==='string') return va.localeCompare(vb)*sortState.dir;
+    return (va-vb)*sortState.dir;
+  });
+
+  const tbody = document.getElementById('table-body');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="19"><div class="empty"><div class="empty-ico">🔍</div>Aucun salarié trouvé</div></td></tr>`;
+    document.getElementById('table-foot').innerHTML = '';
+    return;
+  }
+
+  const isExited = e => e.date_sortie && new Date(e.date_sortie) <= new Date();
+
+  tbody.innerHTML = rows.map(e => {
+    const s = calcSalary(e);
+    const alerts = getAlerts(e);
+    const classeNum = resolveClasse(e);
+    const cl = getCcmClass(classeNum);
+    const groupe = cl.groupe;
+    const ccmTaux = getCcmMinRate(classeNum);
+    const effMin = getEffectiveMin(classeNum);
+    const rate = parseFloat(e.taux_horaire)||0;
+    const rateStatus = rate < settings.smic ? 'danger' : (ccmTaux > settings.smic && rate < ccmTaux) ? 'warn' : 'ok';
+    const delta = (rate - effMin);
+    const hSupWarnAnnual = s.hSupAnnual > settings.quotaHSup;
+    const alertIcon = alerts.length ? `<span style="color:var(--warn)">⚠️</span>` : '';
+    const exited = isExited(e);
+    const belowSmic = ccmTaux < settings.smic;
+    const isSelected = selectedIds.has(e.id);
+    return `<tr class="${exited?'exited':''}${isSelected?' selected':''}">
+      <td><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
+      <td><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
+      <td>${fmtDate(e.date_entree)}</td>
+      <td>${e.date_sortie?`<span style="color:var(--danger)">${fmtDate(e.date_sortie)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
+      <td style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
+      <td><div class="grp-badge grp-${groupe}">${groupe}</div></td>
+      <td style="font-size:12px;font-weight:700;color:var(--muted)" title="${cl.label} — ${cl.desc}">Cl.${classeNum}</td>
+      <td class="num">${e.heures_semaine||35}h</td>
+      <td class="num" style="${hSupWarnAnnual?'color:var(--warn)':''}">${e.heures_sup_semaine||0}h${hSupWarnAnnual?' ⚠️':''}</td>
+      <td class="num">${settings.smic.toFixed(2)}€</td>
+      <td class="num" style="${belowSmic?'color:var(--warn)':''}" title="${belowSmic?'Sous SMIC → SMIC s\'applique':''}">${ccmTaux.toFixed(2)}€${belowSmic?' ⚠️':''}</td>
+      <td><div class="rate-cell"><span class="dot dot-${rateStatus}"></span><span class="rate-${rateStatus} num">${rate.toFixed(2)}€</span></div></td>
+      <td class="num ${delta>=0?'rate-ok':'rate-danger'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
+      <td class="num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
+      <td class="num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
+      <td class="num">${fmt(s.annual)}</td>
+      <td class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
+      <td><div style="display:flex;gap:4px">
+        <button class="btn btn-ghost btn-xs" onclick="openModal('${e.id}')">✏️</button>
+        <button class="btn btn-danger btn-xs" onclick="deleteEmp('${e.id}')">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  // Footer totals
+  const activeRows = rows.filter(e=>!isExited(e));
+  const totals = aggregatePayroll(activeRows);
+  document.getElementById('table-foot').innerHTML = `
+    <tr class="tbl-footer">
+      <td></td>
+      <td colspan="7"><b>TOTAL (${activeRows.length} actifs)</b></td>
+      <td></td><td></td><td></td><td></td><td></td><td></td>
+      <td class="num"><b>${fmt(totals.monthly)}</b></td>
+      <td class="num"><b>${fmt(activeRows.reduce((s,e)=>s+calcSalary(e).supPay,0))}</b></td>
+      <td class="num"><b>${fmt(totals.annual)}</b></td>
+      <td class="num"><b>${fmt(totals.cost)}</b></td>
+      <td></td>
+    </tr>`;
+}
+
+function salTooltip(s) {
+  return `Base: ${fmt(s.basePay)} | H.Sup +25%: ${fmt(s.sup25Pay)} | H.Sup +50%: ${fmt(s.sup50Pay)}`;
+}
+
+// ═══════════════════════════════════════════
+// RENDER OPTIMIZATION
+// ═══════════════════════════════════════════
+// Unique groups for ETP sliders
+const ETP_GROUPS = ['A','B','C','D','E','F','G','H','I'];
+
+function renderOptim() {
+  // ETP sliders (par groupe)
+  const cont = document.getElementById('etp-sliders');
+  if (!cont._init) {
+    const GC = getGroupeColors();
+    cont.innerHTML = ETP_GROUPS.map(g=>{
+      const minClasse = Object.values(ccmClasses).find(c=>c.groupe===g);
+      const minTaux = minClasse ? Math.max(minClasse.tauxMin, settings.smic) : settings.smic;
+      return `
+      <div class="slider-lbl" style="margin-top:8px">
+        <span><span class="grp-badge grp-${g}" style="margin-right:5px">${g}</span> Grp ${g} (mini ${minTaux.toFixed(2)}€/h)</span>
+        <span id="etp-val-${g}">0 ETP</span>
+      </div>
+      <input type="range" min="0" max="5" step="1" value="0" id="etp-${g}" oninput="document.getElementById('etp-val-${g}').textContent=this.value+' ETP';updateEtp()">`;
+    }).join('');
+    cont._init=true;
+  }
+
+  updateSim();
+  updateHsup();
+  updateEtp();
+  renderCcmAnalysis();
+  renderScenarios();
+}
+
+function updateSim() {
+  const pct = parseFloat(document.getElementById('sim-pct').value)||0;
+  document.getElementById('sim-pct-val').textContent = pct+'%';
+  const onlyBelow = document.getElementById('sim-only-below').checked;
+  const active = getActiveEmployees();
+  const before = aggregatePayroll(active);
+
+  const simEmps = active.map(e=>{
+    let rate = parseFloat(e.taux_horaire)||0;
+    const effMin = getEffectiveMin(resolveClasse(e));
+    if (!onlyBelow || rate < effMin) rate = rate * (1+pct/100);
+    return {...e, taux_horaire: rate};
+  });
+  const after = aggregatePayroll(simEmps);
+
+  document.getElementById('sim-result').innerHTML = `
+    <div class="res-row"><span>Avant — Masse sal. mensuelle</span><span>${fmt(before.monthly)}</span></div>
+    <div class="res-row"><span>Après — Masse sal. mensuelle</span><span>${fmt(after.monthly)}</span></div>
+    <div class="res-row"><span>Δ mensuel</span><span style="color:${after.monthly>before.monthly?'var(--danger)':'var(--success)'}">${fmt(after.monthly-before.monthly)}</span></div>
+    <div class="res-row"><span>Avant — Coût employeur annuel</span><span>${fmt(before.cost)}</span></div>
+    <div class="res-row"><span>Après — Coût employeur annuel</span><span>${fmt(after.cost)}</span></div>
+    <div class="res-row"><span>💶 Impact annuel employeur</span><span>${fmt(after.cost-before.cost)}</span></div>
+  `;
+}
+
+function updateHsup() {
+  const add = parseFloat(document.getElementById('hsup-add').value)||0;
+  const pct = parseFloat(document.getElementById('hsup-pct').value)||100;
+  document.getElementById('hsup-add-val').textContent = (add>=0?'+':'')+add+'h';
+  document.getElementById('hsup-pct-val').textContent = pct+'%';
+  const active = getActiveEmployees();
+  const before = aggregatePayroll(active);
+  const n = Math.round(active.length*pct/100);
+  const simEmps = active.map((e,i)=>{
+    if (i>=n) return e;
+    const hSup = Math.max(0,(parseFloat(e.heures_sup_semaine)||0)+add);
+    return {...e, heures_sup_semaine: hSup};
+  });
+  const after = aggregatePayroll(simEmps);
+  const hSupAfter = simEmps.reduce((s,e)=>s+calcSalary(e).hSupMonth,0);
+  document.getElementById('hsup-result').innerHTML = `
+    <div class="res-row"><span>Salariés concernés</span><span>${n}/${active.length}</span></div>
+    <div class="res-row"><span>H.Sup totales / mois (avant)</span><span>${fmtH(before.hSupMonth)}</span></div>
+    <div class="res-row"><span>H.Sup totales / mois (après)</span><span>${fmtH(hSupAfter)}</span></div>
+    <div class="res-row"><span>Δ masse sal. mensuelle</span><span style="color:${after.monthly>before.monthly?'var(--danger)':'var(--success)'}">${fmt(after.monthly-before.monthly)}</span></div>
+    <div class="res-row"><span>💶 Impact coût employeur / an</span><span>${fmt(after.cost-before.cost)}</span></div>
+  `;
+}
+
+function updateEtp() {
+  const active = getActiveEmployees();
+  const before = aggregatePayroll(active);
+  let addedCost = 0, addedMonthly = 0, addedCount = 0;
+  ETP_GROUPS.forEach(g=>{
+    const n = parseInt(document.getElementById('etp-'+g)?.value)||0;
+    if (n>0) {
+      // Use the first class of this group as base rate
+      const firstCl = Object.values(ccmClasses).find(c=>c.groupe===g);
+      const rate = firstCl ? Math.max(firstCl.tauxMin, settings.smic) : settings.smic;
+      addedCount += n;
+      addedMonthly += n * rate * settings.baseH;
+      addedCost += n * rate * settings.baseH * 12 * (1+settings.charges/100);
+    }
+  });
+  document.getElementById('etp-result').innerHTML = `
+    <div class="res-row"><span>ETP ajoutés</span><span>${addedCount}</span></div>
+    <div class="res-row"><span>Masse sal. actuelle / mois</span><span>${fmt(before.monthly)}</span></div>
+    <div class="res-row"><span>Δ masse sal. / mois</span><span>+${fmt(addedMonthly)}</span></div>
+    <div class="res-row"><span>Coût employeur actuel / an</span><span>${fmt(before.cost)}</span></div>
+    <div class="res-row"><span>💶 Surcoût annuel (au mini CCM effectif)</span><span style="color:var(--danger)">+${fmt(addedCost)}</span></div>
+  `;
+}
+
+function renderCcmAnalysis() {
+  const active = getActiveEmployees();
+  const total = active.length;
+  // Conforme = taux >= max(CCM tauxMin, SMIC)
+  const aboveCcm = active.filter(e=>{ const rate=parseFloat(e.taux_horaire)||0; return rate>=getEffectiveMin(resolveClasse(e)); });
+  const belowCcm = total - aboveCcm.length;
+  const belowSmic = active.filter(e=>(parseFloat(e.taux_horaire)||0)<settings.smic);
+  const pctConf = total ? Math.round(aboveCcm.length/total*100) : 100;
+  const avgCcmMin = Object.values(ccmClasses).reduce((s,c)=>s+Math.max(c.tauxMin,settings.smic),0)/Object.keys(ccmClasses).length;
+  document.getElementById('ccm-analysis').innerHTML = `
+    <div class="res-box" style="margin-top:0">
+      <div class="res-row"><span>Salariés conformes CCM/SMIC</span><span style="color:var(--success)">${aboveCcm.length}/${total} (${pctConf}%)</span></div>
+      <div class="res-row"><span>Sous le mini effectif (CCM ou SMIC)</span><span style="color:${belowCcm>0?'var(--warn)':'var(--success)'}">${belowCcm}</span></div>
+      <div class="res-row"><span>Sous le SMIC seul ⚠️ illégal</span><span style="color:${belowSmic.length>0?'var(--danger)':'var(--success)'}">${belowSmic.length}</span></div>
+      <div class="res-row"><span>Cl.1-2 sous SMIC (SMIC s'applique)</span><span style="color:var(--warn)">Classes A1 (11.92€) et A2 (12.01€)</span></div>
+      <div class="res-row"><span>Mini CCM effectif moyen (18 classes)</span><span>${avgCcmMin.toFixed(2)}€/h</span></div>
+    </div>
+    ${belowCcm>0?`<div style="margin-top:10px;font-size:12px;color:var(--muted)">
+      <b style="color:var(--warn)">Salariés sous le mini effectif :</b>
+      ${active.filter(e=>(parseFloat(e.taux_horaire)||0)<getEffectiveMin(resolveClasse(e))).map(e=>{
+        const cn=resolveClasse(e); const cl=getCcmClass(cn); const effMin=getEffectiveMin(cn);
+        return `<div style="margin-top:5px;padding:6px 8px;background:rgba(245,158,11,.07);border-radius:6px;border-left:2px solid var(--warn)">
+          <b>${e.prenom} ${e.nom}</b> (Cl.${cn}/${cl.groupe} — ${cl.label})<br>
+          Taux : ${(parseFloat(e.taux_horaire)||0).toFixed(2)}€ / Mini effectif : ${effMin.toFixed(2)}€
+          → Δ mensuel à régulariser : ${fmt((effMin-(parseFloat(e.taux_horaire)||0))*settings.baseH)}
+        </div>`;}).join('')}
+    </div>`:''}
+  `;
+}
+
+function renderScenarios() {
+  const active = getActiveEmployees();
+  const base = aggregatePayroll(active);
+  const scenarios = [
+    {name:'🎯 Situation actuelle', pct:0},
+    {name:'📈 Hausse SMIC +2%', pct:2},
+    {name:'📈 Hausse SMIC +3%', pct:3},
+    {name:'🔧 Conformité CCM (mini)', pct:0, ccmOnly:true},
+    {name:'💡 +1h sup/sem tout le monde', hsup:1},
+    {name:'💡 +2h sup/sem tout le monde', hsup:2},
+  ];
+  let html = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>';
+  ['Scénario','MS mensuelle','MS annuelle','Coût emp./an','Δ vs actuel','Δ %'].forEach(h=>html+=`<th style="padding:8px;text-align:left;color:var(--muted);border-bottom:1px solid var(--border)">${h}</th>`);
+  html += '</tr></thead><tbody>';
+  scenarios.forEach(sc=>{
+    let simEmps = active.map(e=>({...e}));
+    if (sc.pct) simEmps = simEmps.map(e=>({...e,taux_horaire:(parseFloat(e.taux_horaire)||0)*(1+sc.pct/100)}));
+    if (sc.ccmOnly) simEmps = simEmps.map(e=>({...e,taux_horaire:Math.max(parseFloat(e.taux_horaire)||0,getEffectiveMin(resolveClasse(e)))}));
+    if (sc.hsup) simEmps = simEmps.map(e=>({...e,heures_sup_semaine:(parseFloat(e.heures_sup_semaine)||0)+sc.hsup}));
+    const agg = aggregatePayroll(simEmps);
+    const delta = agg.cost - base.cost;
+    const deltaPct = base.cost ? delta/base.cost*100 : 0;
+    html += `<tr>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4)">${sc.name}</td>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4)" class="num">${fmt(agg.monthly)}</td>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4)" class="num">${fmt(agg.annual)}</td>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4)" class="num">${fmt(agg.cost)}</td>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4);color:${delta>0?'var(--danger)':delta<0?'var(--success)':'var(--muted)'}" class="num">${delta>=0?'+':''}${fmt(delta)}</td>
+      <td style="padding:8px;border-bottom:1px solid rgba(42,46,69,.4);color:${delta>0?'var(--danger)':delta<0?'var(--success)':'var(--muted)'}">${delta>=0?'+':''}${deltaPct.toFixed(1)}%</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('scenario-table').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════
+// RENDER SETTINGS
+// ═══════════════════════════════════════════
+function renderSettings() {
+  document.getElementById('s-smic').value = settings.smic;
+  document.getElementById('s-charges').value = settings.charges;
+  document.getElementById('s-base-h').value = settings.baseH;
+  document.getElementById('s-quota-hsup').value = settings.quotaHSup;
+  document.getElementById('s-maj25').value = settings.maj25;
+  document.getElementById('s-maj50').value = settings.maj50;
+
+  const gColors = getGroupeColors();
+  document.getElementById('ccm-settings-grid').innerHTML = Object.entries(ccmClasses).map(([c,info])=>{
+    const belowSmic = info.tauxMin < settings.smic;
+    const effRate = Math.max(info.tauxMin, settings.smic);
+    return `
+    <div class="ccm-item" style="border-left:3px solid ${gColors[info.groupe]||'#888'}">
+      <div class="ccm-header">
+        <div class="grp-badge grp-${info.groupe}">${info.groupe}</div>
+        <div>
+          <div style="font-weight:700;font-size:12px">${info.label}</div>
+          <div style="font-size:10px;color:var(--muted)">${info.categorie} · ${info.smhAnnuel.toLocaleString('fr-FR')}€/an</div>
+        </div>
+      </div>
+      <div class="ccm-desc">${info.desc}</div>
+      <div class="ccm-rate" style="margin-top:8px">
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Taux mini CCM (€/h)</label>
+        <input type="number" step="0.01" id="ccm-min-${c}" value="${info.tauxMin.toFixed(2)}">
+        ${belowSmic?`<div style="font-size:10px;color:var(--warn);margin-top:3px">⚠️ Sous SMIC → effectif : ${effRate.toFixed(2)}€/h</div>`:`<div style="font-size:10px;color:var(--success);margin-top:3px">✓ SMH mensuel : ${info.smhMensuel.toLocaleString('fr-FR')}€</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════
+function openModal(id) {
+  const overlay = document.getElementById('modal-overlay');
+  overlay.classList.add('open');
+  if (id) {
+    const e = employees.find(x=>x.id===id);
+    if (!e) return;
+    document.getElementById('modal-title').innerHTML = '<span>✏️</span> Modifier salarié';
+    document.getElementById('edit-id').value = id;
+    document.getElementById('f-nom').value = e.nom||'';
+    document.getElementById('f-prenom').value = e.prenom||'';
+    document.getElementById('f-entree').value = e.date_entree||'';
+    document.getElementById('f-sortie').value = e.date_sortie||'';
+    document.getElementById('f-contrat').value = e.type_contrat||'CDI';
+    document.getElementById('f-poste').value = e.poste||'';
+    document.getElementById('f-classe').value = resolveClasse(e).toString();
+    document.getElementById('f-heures').value = e.heures_semaine||35;
+    document.getElementById('f-hsup').value = e.heures_sup_semaine||0;
+    document.getElementById('f-taux').value = e.taux_horaire||'';
+    document.getElementById('f-notes').value = e.notes||'';
+  } else {
+    document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
+    document.getElementById('edit-id').value = '';
+    ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('f-entree').value = new Date().toISOString().split('T')[0];
+    document.getElementById('f-contrat').value = 'CDI';
+    document.getElementById('f-classe').value = '1';
+    document.getElementById('f-heures').value = '35';
+    document.getElementById('f-hsup').value = '0';
+  }
+  updateModalCalc();
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function updateModalGroup() { updateModalCalc(); }
+
+function updateModalCalc() {
+  const rate = parseFloat(document.getElementById('f-taux').value)||0;
+  const hSem = parseFloat(document.getElementById('f-heures').value)||35;
+  const hSup = parseFloat(document.getElementById('f-hsup').value)||0;
+  const classeNum = parseInt(document.getElementById('f-classe').value)||1;
+  const cl = getCcmClass(classeNum);
+  const groupe = cl.groupe;
+  const ccmTaux = getCcmMinRate(classeNum);
+  const effMin = getEffectiveMin(classeNum);
+  const belowSmic = ccmTaux < settings.smic;
+  const gColors = getGroupeColors();
+
+  // Update groupe display
+  const gDisp = document.getElementById('f-groupe-display');
+  if (gDisp) {
+    gDisp.textContent = groupe;
+    gDisp.style.background = (gColors[groupe]||'#888')+'33';
+    gDisp.style.color = gColors[groupe]||'#888';
+  }
+  document.getElementById('f-groupe').value = groupe;
+
+  const fakeEmp = {taux_horaire:rate, heures_semaine:hSem, heures_sup_semaine:hSup};
+  const s = calcSalary(fakeEmp);
+
+  document.getElementById('mc-smic').textContent = settings.smic.toFixed(2)+'€/h';
+  document.getElementById('mc-ccm').textContent = ccmTaux.toFixed(2)+`€/h (${belowSmic?'⚠️ sous SMIC':''}SMH ${cl.smhMensuel.toLocaleString('fr-FR')}€/mois)`;
+  document.getElementById('mc-base').textContent = fmt(s.basePay);
+  document.getElementById('mc-hsup').textContent = s.supPay>0?fmt(s.supPay):'—';
+  document.getElementById('mc-total').textContent = fmt(s.monthly);
+  document.getElementById('mc-annual').textContent = fmt(s.annual);
+  document.getElementById('mc-charged').textContent = fmt(s.costAnnual);
+
+  let hint = '';
+  if (rate>0 && rate<settings.smic) hint=`⛔ Taux inférieur au SMIC (${settings.smic.toFixed(2)}€) — illégal`;
+  else if (rate>0 && ccmTaux>settings.smic && rate<ccmTaux) hint=`⚠️ Taux inférieur au mini CCM Classe ${classeNum}/${groupe} (${ccmTaux.toFixed(2)}€) — à régulariser`;
+  else if (rate>0) hint=`✅ Conforme. Mini effectif : ${effMin.toFixed(2)}€/h · Δ vs CCM/SMIC : +${(rate-effMin).toFixed(2)}€/h · SMH mensuel CCM : ${cl.smhMensuel.toLocaleString('fr-FR')}€`;
+  document.getElementById('modal-hint').textContent = hint;
+  document.getElementById('modal-hint').style.display = hint?'':'none';
+}
+
+function saveEmployee() {
+  const id = document.getElementById('edit-id').value;
+  const classeNum = parseInt(document.getElementById('f-classe').value)||1;
+  const cl = getCcmClass(classeNum);
+  const emp = {
+    id: id || Date.now().toString(),
+    nom: document.getElementById('f-nom').value.trim().toUpperCase(),
+    prenom: document.getElementById('f-prenom').value.trim(),
+    date_entree: document.getElementById('f-entree').value,
+    date_sortie: document.getElementById('f-sortie').value||null,
+    type_contrat: document.getElementById('f-contrat').value,
+    poste: document.getElementById('f-poste').value.trim(),
+    classe_num: classeNum,
+    groupe: cl.groupe,
+    heures_semaine: parseFloat(document.getElementById('f-heures').value)||35,
+    heures_sup_semaine: parseFloat(document.getElementById('f-hsup').value)||0,
+    taux_horaire: parseFloat(document.getElementById('f-taux').value)||0,
+    notes: document.getElementById('f-notes').value.trim(),
+  };
+  if (!emp.nom) { alert('Le nom est requis'); return; }
+  if (id) employees = employees.map(e=>e.id===id?emp:e);
+  else employees.push(emp);
+  saveData();
+  closeModal();
+  refresh();
+}
+
+function deleteEmp(id) {
+  if (!confirm('Supprimer ce salarié ?')) return;
+  employees = employees.filter(e=>e.id!==id);
+  saveData();
+  refresh();
+}
+
+function filterAlerts() {
+  document.getElementById('filter-status').value='alerts';
+  renderTable();
+}
+
+// ═══════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════
+function exportCSV() {
+  const headers = ['Nom','Prénom','Entrée','Sortie','Contrat','Poste','Groupe','Classe CCM','SMH mensuel CCM €','Taux salarié €/h','Mini CCM €/h','Mini effectif €/h','Δ vs effectif min','Brut mensuel €','H.Sup mensuel €','Brut annuel €','Coût emp. annuel €'];
+  const rows = employees.map(e=>{
+    const s=calcSalary(e);
+    const cn=resolveClasse(e); const cl=getCcmClass(cn);
+    const ccmTaux=getCcmMinRate(cn); const effMin=getEffectiveMin(cn);
+    const rate=parseFloat(e.taux_horaire)||0;
+    return [e.nom,e.prenom,e.date_entree||'',e.date_sortie||'',e.type_contrat,e.poste,cl.groupe,'Cl.'+cn,cl.smhMensuel,rate.toFixed(2),ccmTaux.toFixed(2),effMin.toFixed(2),(rate-effMin).toFixed(2),s.monthly.toFixed(2),s.supPay.toFixed(2),s.annual.toFixed(2),s.costAnnual.toFixed(2)].join(';');
+  });
+  const csv = [headers.join(';'),...rows].join('\n');
+  const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download='equipe_rh_'+new Date().toISOString().split('T')[0]+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
+function showTab(id) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  const idx = {dashboard:0,team:1,optim:2,settings:3}[id];
+  document.querySelectorAll('.nav-btn')[idx]?.classList.add('active');
+  if (id==='team') renderTable();
+  if (id==='optim') renderOptim();
+  if (id==='settings') renderSettings();
+}
+
+// ═══════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════
+function fmt(n) { return new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n||0); }
+function fmtH(h) { return Math.round(h||0)+'h'; }
+function pct(n) { return (n||0).toFixed(1)+'%'; }
+function fmtDate(d) { if(!d)return'—'; try{return new Date(d).toLocaleDateString('fr-FR');}catch{return d;} }
+
+function refresh() {
+  renderDashboard();
+  const activeTab = document.querySelector('.tab.active')?.id?.replace('tab-','');
+  if (activeTab==='team') renderTable();
+  if (activeTab==='optim') renderOptim();
+}
+
+// ═══════════════════════════════════════════
+// SAMPLE DATA
+// ═══════════════════════════════════════════
+function SAMPLE_EMPLOYEES() {
+  // Grille CCM IDCC 3248 — classes 1→18 (grille 2024, en vigueur en 2026)
+  // SMIC : 12,31€/h au 1er juin 2026
+  return [
+    // Groupe A (classes 1-2) : SMH sous SMIC → SMIC s'applique
+    {id:'s1',nom:'MARTIN',prenom:'Jean',date_entree:'2019-03-01',date_sortie:null,type_contrat:'CDI',poste:'Opérateur de production',classe_num:2,groupe:'A',heures_semaine:35,heures_sup_semaine:2,taux_horaire:12.50,notes:'Cl.2 — SMH 21850€/an, SMIC applicable'},
+    // Groupe B (classes 3-4)
+    {id:'s2',nom:'DUPONT',prenom:'Marie',date_entree:'2020-06-15',date_sortie:null,type_contrat:'CDI',poste:'Technicienne qualité',classe_num:5,groupe:'C',heures_semaine:35,heures_sup_semaine:0,taux_horaire:13.60,notes:'Cl.5 — SMH 24250€/an'},
+    {id:'s3',nom:'BERNARD',prenom:'Thomas',date_entree:'2021-01-10',date_sortie:null,type_contrat:'CDI',poste:'Technicien méthodes',classe_num:7,groupe:'D',heures_semaine:39,heures_sup_semaine:0,taux_horaire:15.00,notes:'Cl.7 — SMH 26400€/an'},
+    {id:'s4',nom:'LEROY',prenom:'Sophie',date_entree:'2022-09-01',date_sortie:null,type_contrat:'CDD',poste:'Assistante RH',classe_num:6,groupe:'C',heures_semaine:35,heures_sup_semaine:0,taux_horaire:14.10,notes:'Cl.6 — Seuil accueil Bac+2'},
+    {id:'s5',nom:'MOREAU',prenom:'Pierre',date_entree:'2018-04-15',date_sortie:null,type_contrat:'CDI',poste:'Chef d\'atelier',classe_num:9,groupe:'E',heures_semaine:39,heures_sup_semaine:3,taux_horaire:17.80,notes:'Cl.9 — Maîtrise, SMH 30500€/an'},
+    // Apprenti : taux horaire selon barème légal apprentissage (% du SMIC selon âge/année)
+    {id:'s6',nom:'SIMON',prenom:'Alice',date_entree:'2023-02-20',date_sortie:null,type_contrat:'Apprentissage',poste:'Chargée de production',classe_num:3,groupe:'B',heures_semaine:35,heures_sup_semaine:0,taux_horaire:9.23,notes:'Apprentie 2e année — 75% SMIC (âge 21+)'},
+    {id:'s7',nom:'GARCIA',prenom:'Roberto',date_entree:'2017-11-05',date_sortie:null,type_contrat:'CDI',poste:'Responsable maintenance',classe_num:12,groupe:'F',heures_semaine:39,heures_sup_semaine:4,taux_horaire:21.00,notes:'Cl.12 — SMH 36700€/an'},
+    // Cadres (groupes F→I)
+    {id:'s8',nom:'PETIT',prenom:'Nathalie',date_entree:'2016-07-01',date_sortie:null,type_contrat:'CDI',poste:'Directrice Commerciale',classe_num:15,groupe:'H',heures_semaine:39,heures_sup_semaine:0,taux_horaire:27.50,notes:'Cl.15 — SMH 47000€/an, Cadre Gpe H'},
+    {id:'s9',nom:'ROBERT',prenom:'François',date_entree:'2022-03-14',date_sortie:'2023-12-31',type_contrat:'CDD',poste:'Technicien BE',classe_num:7,groupe:'D',heures_semaine:35,heures_sup_semaine:0,taux_horaire:14.60,notes:'CDD terminé — Cl.7'},
+  ];
+}
+
+// ═══════════════════════════════════════════
+// RACCOURCIS CLAVIER
+// ═══════════════════════════════════════════
+document.addEventListener('keydown',e=>{
+  if ((e.ctrlKey||e.metaKey)&&e.key==='n'){e.preventDefault();openModal();}
+});
+
+// ═══════════════════════════════════════════
+// BACKUP JSON — Export / Import complet
+// ═══════════════════════════════════════════
+const BACKUP_VERSION = 1;
+
+function exportJSON() {
+  const backup = {
+    version: BACKUP_VERSION,
+    exportDate: new Date().toISOString(),
+    appName: 'RH Métallurgie Dashboard',
+    data: { employees, settings, ccmClasses }
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'rh-metal-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function importJSON(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const backup = JSON.parse(e.target.result);
+      if (!backup.data || !backup.data.employees) {
+        alert('❌ Fichier invalide : structure non reconnue.');
+        return;
+      }
+      const d = backup.exportDate ? new Date(backup.exportDate).toLocaleString('fr-FR') : '?';
+      if (!confirm(`Importer la sauvegarde du ${d} ?\n\n${backup.data.employees.length} salarié(s) trouvé(s).\n\n⚠️ Toutes les données actuelles seront remplacées.`)) {
+        input.value = ''; return;
+      }
+      employees = backup.data.employees || [];
+      settings = {...DEFAULT_SETTINGS, ...(backup.data.settings || {})};
+      ccmClasses = backup.data.ccmClasses || JSON.parse(JSON.stringify(DEFAULT_CCM));
+      localStorage.setItem('rh_employees', JSON.stringify(employees));
+      localStorage.setItem('rh_settings', JSON.stringify(settings));
+      localStorage.setItem('rh_ccm', JSON.stringify(ccmClasses));
+      clearSelection();
+      refresh();
+      renderSettings();
+      alert(`✅ Import réussi : ${employees.length} salarié(s) chargé(s).`);
+    } catch(err) {
+      alert('❌ Erreur de lecture : ' + err.message);
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+loadData();
+refresh();
+renderSettings();
+
+// ═══════════════════════════════════════════
+// SERVICE WORKER (PWA)
+// ═══════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('[PWA] SW enregistré', reg.scope))
+      .catch(err => console.warn('[PWA] SW échec :', err));
+  });
+}
+</script>
+</body>
+</html>

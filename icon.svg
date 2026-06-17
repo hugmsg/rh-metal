@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#141622"/>
+  <rect width="512" height="512" rx="96" fill="url(#grad)"/>
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c6cf8"/>
+      <stop offset="100%" stop-color="#00c9a7"/>
+    </linearGradient>
+    <clipPath id="clip">
+      <rect width="512" height="512" rx="96"/>
+    </clipPath>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#141622" clip-path="url(#clip)"/>
+  <!-- Background accent -->
+  <circle cx="400" cy="120" r="180" fill="#7c6cf8" opacity="0.12"/>
+  <circle cx="110" cy="400" r="140" fill="#00c9a7" opacity="0.10"/>
+  <!-- RH letters -->
+  <text x="256" y="300" font-family="'Segoe UI',system-ui,sans-serif" font-size="200" font-weight="800"
+        fill="url(#tgrad)" text-anchor="middle" dominant-baseline="middle" letter-spacing="-8">RH</text>
+  <defs>
+    <linearGradient id="tgrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a89cf8"/>
+      <stop offset="100%" stop-color="#00c9a7"/>
+    </linearGradient>
+  </defs>
+  <!-- Small gear icon bottom right -->
+  <text x="400" y="440" font-size="72" text-anchor="middle" dominant-baseline="middle" opacity="0.5">⚙️</text>
+</svg>
