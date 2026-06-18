@@ -12,6 +12,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RH Métal">
+<script>
+// Applique le thème avant le premier rendu pour éviter un flash de couleur
+(function(){
+  try {
+    var t = localStorage.getItem('rh_theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e) {}
+})();
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
 :root {
@@ -21,6 +30,18 @@
   --blue:#3b82f6;--purple:#a855f7;--pink:#ec4899;--orange:#f97316;
   --r:12px;--r-sm:8px;--shadow:0 4px 24px rgba(0,0,0,.5);
 }
+:root[data-theme="light"] {
+  --bg:#f3f4fa;--surface:#ffffff;--surface2:#f0f1f8;--surface3:#e7e9f4;
+  --border:#dcdfee;--text:#1b1d2c;--muted:#646a88;
+  --shadow:0 4px 24px rgba(30,30,60,.12);
+}
+:root[data-theme="light"] body{background:var(--bg)}
+:root[data-theme="light"] .overlay{background:rgba(20,20,40,.45)}
+/* Couleurs "pastel" pensées pour fond sombre → trop pâles sur fond clair, on les fonce pour garder les alertes de conformité lisibles */
+:root[data-theme="light"] .badge-alert{color:#b91c1c}
+:root[data-theme="light"] .badge-ok{color:#047857}
+:root[data-theme="light"] .alerts-bar{color:#b91c1c}
+:root[data-theme="light"] .modal-hint{color:#6d28d9}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -28,7 +49,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── HEADER ── */
-#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:12px;height:56px;position:sticky;top:0;z-index:100}
+#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;padding-top:env(safe-area-inset-top);display:flex;align-items:center;gap:12px;height:calc(56px + env(safe-area-inset-top));position:sticky;top:0;z-index:100}
 .logo{font-size:15px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px;white-space:nowrap}
 .logo .logo-icon{font-size:20px}
 .logo .logo-short{display:none}
@@ -214,6 +235,46 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   .opti-grid{grid-template-columns:1fr}
   .form-grid,.form-grid-3{grid-template-columns:1fr 1fr}
   .proj-chart-row{grid-template-columns:1fr}
+
+  /* ── TABLE ÉQUIPE → CARTES EMPILÉES ── */
+  .tbl-wrap{overflow-x:visible;background:transparent;border:none}
+  #main-table{min-width:0;width:100%;border-collapse:separate;border-spacing:0 10px}
+  #main-table thead{display:none}
+  #main-table tbody,#main-table tfoot{display:block}
+  #main-table tr{display:block}
+  #main-table td{display:block;border-bottom:none}
+
+  #main-table tr.row-emp{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 44px 10px 38px}
+  #main-table tr.row-emp.exited{opacity:.6}
+  #main-table tr.row-emp.selected{border-color:var(--accent)}
+  #main-table tr.row-emp td{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(42,46,69,.5);font-size:12px}
+  #main-table tr.row-emp td:last-of-type{border-bottom:none}
+  #main-table tr.row-emp td::before{content:attr(data-label);color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:700;letter-spacing:.3px;flex-shrink:0}
+
+  /* Sélection : coin haut-gauche */
+  #main-table tr.row-emp td[data-label="Sélection"]{position:absolute;top:12px;left:10px;padding:0;border:none}
+  #main-table tr.row-emp td[data-label="Sélection"]::before{content:none}
+
+  /* Nom : titre de la carte, pleine largeur, pas de label */
+  #main-table tr.row-emp td[data-label="Salarié"]{display:block;font-size:14px;padding:0 0 8px;margin-bottom:4px;border-bottom:1px solid var(--border)}
+  #main-table tr.row-emp td[data-label="Salarié"]::before{content:none}
+
+  /* Actions : coin haut-droit */
+  #main-table tr.row-emp td[data-label="Actions"]{position:absolute;top:10px;right:8px;padding:0;border:none}
+  #main-table tr.row-emp td[data-label="Actions"]::before{content:none}
+
+  /* Colonnes secondaires masquées sur mobile (consultables via ✏️) */
+  #main-table tr.row-emp td[data-label="SMIC €/h"],
+  #main-table tr.row-emp td[data-label="Mini CCM"],
+  #main-table tr.row-emp td[data-label="Δ vs CCM"],
+  #main-table tr.row-emp td[data-label="H.Sup brut/mois"],
+  #main-table tr.row-emp td[data-label="Brut/an"]{display:none}
+
+  /* Ligne de totaux */
+  #main-table tr.tbl-footer{background:rgba(124,108,248,.08);border:1px solid var(--accent);border-radius:var(--r);padding:10px 14px;margin-top:6px}
+  #main-table tr.tbl-footer td{display:flex;justify-content:space-between;padding:4px 0;border-bottom:none;font-size:12px}
+  #main-table tr.tbl-footer td:empty{display:none}
+  #main-table tr.tbl-footer td::before{content:attr(data-label);color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:700}
 }
 @media(max-width:600px){
   .form-grid,.form-grid-3{grid-template-columns:1fr}
@@ -247,7 +308,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 
 /* ── MOBILE ── */
 @media(max-width:700px){
-  #header{padding:0 10px;height:52px;gap:8px}
+  #header{padding:0 10px;padding-top:env(safe-area-inset-top);height:calc(52px + env(safe-area-inset-top));gap:8px}
   .logo .logo-full{display:none}
   .logo .logo-short{display:inline}
   .nav{display:none}
@@ -310,6 +371,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
     <button class="nav-btn" data-tab="settings" onclick="showTab('settings')">⚙️ Paramètres</button>
   </nav>
   <div class="header-right">
+    <button class="btn btn-ghost btn-sm" id="theme-toggle" onclick="toggleTheme()" title="Changer le thème" aria-label="Changer le thème">🌙</button>
     <span id="alert-badge" class="badge-alert" onclick="showTab('team');filterAlerts()" style="display:none">⚠️ 0 alertes</span>
     <span id="ok-badge" class="badge-ok" style="display:none">✅ Conforme</span>
     <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇<span class="btn-label"> Export CSV</span></button>
@@ -1108,26 +1170,26 @@ function renderTable() {
     const exited = isExited(e);
     const belowSmic = ccmTaux < settings.smic;
     const isSelected = selectedIds.has(e.id);
-    return `<tr class="${exited?'exited':''}${isSelected?' selected':''}">
-      <td><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
-      <td><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
-      <td>${fmtDate(e.date_entree)}</td>
-      <td>${e.date_sortie?`<span style="color:var(--danger)">${fmtDate(e.date_sortie)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
-      <td><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
-      <td style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
-      <td><div class="grp-badge grp-${groupe}">${groupe}</div></td>
-      <td style="font-size:12px;font-weight:700;color:var(--muted)" title="${cl.label} — ${cl.desc}">Cl.${classeNum}</td>
-      <td class="num">${e.heures_semaine||35}h</td>
-      <td class="num" style="${hSupWarnAnnual?'color:var(--warn)':''}">${e.heures_sup_semaine||0}h${hSupWarnAnnual?' ⚠️':''}</td>
-      <td class="num">${settings.smic.toFixed(2)}€</td>
-      <td class="num" style="${belowSmic?'color:var(--warn)':''}" title="${belowSmic?'Sous SMIC → SMIC s\'applique':''}">${ccmTaux.toFixed(2)}€${belowSmic?' ⚠️':''}</td>
-      <td><div class="rate-cell"><span class="dot dot-${rateStatus}"></span><span class="rate-${rateStatus} num">${rate.toFixed(2)}€</span></div></td>
-      <td class="num ${delta>=0?'rate-ok':'rate-danger'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
-      <td class="num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
-      <td class="num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
-      <td class="num">${fmt(s.annual)}</td>
-      <td class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
-      <td><div style="display:flex;gap:4px">
+    return `<tr class="row-emp ${exited?'exited':''}${isSelected?' selected':''}">
+      <td data-label="Sélection"><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
+      <td data-label="Salarié"><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
+      <td data-label="Entrée">${fmtDate(e.date_entree)}</td>
+      <td data-label="Sortie">${e.date_sortie?`<span style="color:var(--danger)">${fmtDate(e.date_sortie)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td data-label="Contrat"><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
+      <td data-label="Poste" style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
+      <td data-label="Groupe"><div class="grp-badge grp-${groupe}">${groupe}</div></td>
+      <td data-label="Classe" style="font-size:12px;font-weight:700;color:var(--muted)" title="${cl.label} — ${cl.desc}">Cl.${classeNum}</td>
+      <td data-label="H/sem" class="num">${e.heures_semaine||35}h</td>
+      <td data-label="H.Sup/sem" class="num" style="${hSupWarnAnnual?'color:var(--warn)':''}">${e.heures_sup_semaine||0}h${hSupWarnAnnual?' ⚠️':''}</td>
+      <td data-label="SMIC €/h" class="num">${settings.smic.toFixed(2)}€</td>
+      <td data-label="Mini CCM" class="num" style="${belowSmic?'color:var(--warn)':''}" title="${belowSmic?'Sous SMIC → SMIC s\'applique':''}">${ccmTaux.toFixed(2)}€${belowSmic?' ⚠️':''}</td>
+      <td data-label="Taux salarié"><div class="rate-cell"><span class="dot dot-${rateStatus}"></span><span class="rate-${rateStatus} num">${rate.toFixed(2)}€</span></div></td>
+      <td data-label="Δ vs CCM" class="num ${delta>=0?'rate-ok':'rate-danger'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
+      <td data-label="Brut/mois" class="num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
+      <td data-label="H.Sup brut/mois" class="num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
+      <td data-label="Brut/an" class="num">${fmt(s.annual)}</td>
+      <td data-label="Coût total/an" class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
+      <td data-label="Actions"><div style="display:flex;gap:4px">
         <button class="btn btn-ghost btn-xs" onclick="openModal('${e.id}')">✏️</button>
         <button class="btn btn-danger btn-xs" onclick="deleteEmp('${e.id}')">🗑️</button>
       </div></td>
@@ -1140,12 +1202,12 @@ function renderTable() {
   document.getElementById('table-foot').innerHTML = `
     <tr class="tbl-footer">
       <td></td>
-      <td colspan="7"><b>TOTAL (${activeRows.length} actifs)</b></td>
+      <td colspan="7" data-label="Total"><b>TOTAL (${activeRows.length} actifs)</b></td>
       <td></td><td></td><td></td><td></td><td></td><td></td>
-      <td class="num"><b>${fmt(totals.monthly)}</b></td>
-      <td class="num"><b>${fmt(activeRows.reduce((s,e)=>s+calcSalary(e).supPay,0))}</b></td>
-      <td class="num"><b>${fmt(totals.annual)}</b></td>
-      <td class="num"><b>${fmt(totals.cost)}</b></td>
+      <td class="num" data-label="Brut/mois"><b>${fmt(totals.monthly)}</b></td>
+      <td class="num" data-label="H.Sup brut/mois"><b>${fmt(activeRows.reduce((s,e)=>s+calcSalary(e).supPay,0))}</b></td>
+      <td class="num" data-label="Brut/an"><b>${fmt(totals.annual)}</b></td>
+      <td class="num" data-label="Coût total/an"><b>${fmt(totals.cost)}</b></td>
       <td></td>
     </tr>`;
 }
@@ -1609,8 +1671,25 @@ function importJSON(input) {
 }
 
 // ═══════════════════════════════════════════
+// THEME (clair / sombre)
+// ═══════════════════════════════════════════
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('rh_theme', t);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = t === 'light' ? '🌙' : '☀️';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#f3f4fa' : '#7c6cf8');
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(current === 'light' ? 'dark' : 'light');
+}
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
+applyTheme(document.documentElement.getAttribute('data-theme') || 'dark');
 loadData();
 refresh();
 renderSettings();
