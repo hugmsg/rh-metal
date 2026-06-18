@@ -15,3 +15,5 @@ desktop.ini
 
 # Backup files (ne pas versionner les backups JSON)
 rh-metal-backup-*.json
+
+.vercel
