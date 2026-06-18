@@ -49,7 +49,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* ── HEADER ── */
-#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:12px;height:56px;position:sticky;top:0;z-index:100}
+#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;padding-top:env(safe-area-inset-top);display:flex;align-items:center;gap:12px;height:calc(56px + env(safe-area-inset-top));position:sticky;top:0;z-index:100}
 .logo{font-size:15px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px;white-space:nowrap}
 .logo .logo-icon{font-size:20px}
 .logo .logo-short{display:none}
@@ -308,7 +308,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 
 /* ── MOBILE ── */
 @media(max-width:700px){
-  #header{padding:0 10px;height:52px;gap:8px}
+  #header{padding:0 10px;padding-top:env(safe-area-inset-top);height:calc(52px + env(safe-area-inset-top));gap:8px}
   .logo .logo-full{display:none}
   .logo .logo-short{display:inline}
   .nav{display:none}
