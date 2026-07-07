@@ -143,16 +143,6 @@ tr.exited td{opacity:.5}
 .grp-H{background:rgba(20,184,166,.2);color:#2dd4bf}
 .grp-I{background:rgba(249,115,22,.2);color:#fb923c}
 
-/* ── RATE CELLS ── */
-.rate-ok{color:var(--success)}
-.rate-warn{color:var(--warn)}
-.rate-danger{color:var(--danger)}
-.rate-cell{display:flex;align-items:center;gap:3px}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.dot-ok{background:var(--success)}
-.dot-warn{background:var(--warn)}
-.dot-danger{background:var(--danger)}
-
 /* ── MODAL ── */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center}
 .overlay.open{display:flex}
@@ -566,7 +556,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
           <input type="number" step="0.1" id="s-charges" oninput="saveSettings();refresh()"></div>
         <div class="fg"><label>Heures mensuelles base (35h)</label>
           <input type="number" step="0.01" id="s-base-h" oninput="saveSettings();refresh()"></div>
-        <div class="fg"><label>Quota H.Sup annuel légal</label>
+        <div class="fg"><label>Contingent H.Sup annuel (accord collectif)</label>
           <input type="number" step="1" id="s-quota-hsup" oninput="saveSettings();refresh()"></div>
         <div class="fg"><label>Majoration H.Sup ≤8h/sem (%)</label>
           <input type="number" step="1" id="s-maj25" oninput="saveSettings();refresh()"></div>
@@ -692,7 +682,7 @@ const DEFAULT_SETTINGS = {
   smic: 12.31,   // SMIC au 1er juin 2026 (revalorisation +2,41%)
   charges: 42,
   baseH: 151.67, // Base 35h/semaine × 52/12
-  quotaHSup: 220,
+  quotaHSup: 450, // Contingent annuel H.Sup — accord collectif d'entreprise (~8h+/sem)
   maj25: 25,
   maj50: 50,
 };
@@ -763,6 +753,12 @@ function resolveClasse(emp) {
   const defaultMap = {A:1,B:3,C:5,D:7,E:9,F:11,G:13,H:15,I:17};
   return defaultMap[emp.groupe] || 1;
 }
+function isMinWageExempt(emp) {
+  // Apprentis et stagiaires suivent un barème légal spécifique (% du SMIC
+  // selon l'âge / l'année de formation), distinct du mini SMIC/CCM des autres
+  // contrats — on ne leur applique donc pas le plancher automatique.
+  return emp.type_contrat === 'Apprentissage' || emp.type_contrat === 'Stage';
+}
 
 // ═══════════════════════════════════════════
 // PERSISTENCE
@@ -773,6 +769,9 @@ function loadData() {
     if (emp) employees = JSON.parse(emp);
     const set = localStorage.getItem('rh_settings');
     if (set) settings = {...DEFAULT_SETTINGS, ...JSON.parse(set)};
+    // Migration : l'ancien quota légal (220h) est remplacé par le contingent
+    // de l'accord collectif (450h) — on corrige les réglages déjà enregistrés.
+    if (settings.quotaHSup === 220) settings.quotaHSup = 450;
     const ccm = localStorage.getItem('rh_ccm');
     if (ccm) {
       const saved = JSON.parse(ccm);
@@ -818,7 +817,14 @@ function resetSettings() {
 const WEEKS_PER_MONTH = 52/12;
 
 function calcSalary(emp, overrideTaux) {
-  const rate = overrideTaux !== undefined ? overrideTaux : (parseFloat(emp.taux_horaire) || 0);
+  // Le taux d'embauche (emp.taux_horaire) reste inchangé en base : c'est un
+  // historique. Le taux réellement payé ne peut jamais descendre sous le
+  // minimum effectif (SMIC ou CCM, le plus élevé) — revalorisé automatiquement
+  // à chaque hausse du SMIC, sans qu'il soit nécessaire de modifier le dossier
+  // du salarié.
+  const storedRate = parseFloat(emp.taux_horaire) || 0;
+  const effMin = getEffectiveMin(resolveClasse(emp));
+  const rate = overrideTaux !== undefined ? overrideTaux : (isMinWageExempt(emp) ? storedRate : Math.max(storedRate, effMin));
   const hSem = parseFloat(emp.heures_semaine) || 35;
   const hSup = parseFloat(emp.heures_sup_semaine) || 0;
   const totalSem = hSem + hSup;
@@ -850,20 +856,14 @@ function calcSalary(emp, overrideTaux) {
 }
 
 function getAlerts(emp) {
+  // Le taux d'embauche sous le SMIC/CCM n'est plus remonté en alerte : la
+  // paie applique automatiquement le minimum effectif (voir calcSalary).
+  // Seul le dépassement du contingent annuel H.Sup (accord collectif) reste
+  // signalé, car il nécessite une action (repos compensateur, régularisation).
   const alerts = [];
-  const rate = parseFloat(emp.taux_horaire) || 0;
-  const classeNum = resolveClasse(emp);
-  const ccmTaux = getCcmMinRate(classeNum);
-  const effMin = getEffectiveMin(classeNum);
-  const cl = getCcmClass(classeNum);
-  if (rate > 0 && rate < settings.smic) {
-    alerts.push({type:'danger', msg:`Taux (${rate.toFixed(2)}€) < SMIC (${settings.smic.toFixed(2)}€) — ⛔ illégal`});
-  } else if (rate > 0 && ccmTaux > settings.smic && rate < ccmTaux) {
-    alerts.push({type:'warn', msg:`Taux (${rate.toFixed(2)}€) < Mini CCM Cl.${classeNum}/${cl.groupe} (${ccmTaux.toFixed(2)}€)`});
-  }
   const sal = calcSalary(emp);
   if (sal.hSupAnnual > settings.quotaHSup) {
-    alerts.push({type:'warn', msg:`H.Sup annuelles (${Math.round(sal.hSupAnnual)}h) > quota légal (${settings.quotaHSup}h)`});
+    alerts.push({type:'warn', msg:`H.Sup annuelles (${Math.round(sal.hSupAnnual)}h) > contingent accord collectif (${settings.quotaHSup}h)`});
   }
   return alerts;
 }
@@ -903,7 +903,7 @@ function renderDashboard() {
     <div class="kpi c-blue"><div class="kpi-icon">📅</div><div class="kpi-lbl">Masse salariale / an</div><div class="kpi-val num">${fmt(agg.annual)}</div><div class="kpi-sub">Brut annuel</div></div>
     <div class="kpi c-purple"><div class="kpi-icon">🏢</div><div class="kpi-lbl">Coût total employeur / an</div><div class="kpi-val num">${fmt(agg.cost)}</div><div class="kpi-sub">Brut + ${settings.charges}% charges</div></div>
     <div class="kpi c-warn"><div class="kpi-icon">⏱️</div><div class="kpi-lbl">H.Sup / mois total</div><div class="kpi-val num">${fmtH(agg.hSupMonth)}</div><div class="kpi-sub">${pct(hSupPct)} de la masse sal.</div></div>
-    <div class="kpi ${alertCount>0?'c-danger':'c-teal'}"><div class="kpi-icon">${alertCount>0?'⚠️':'✅'}</div><div class="kpi-lbl">Alertes conformité</div><div class="kpi-val">${alertCount}</div><div class="kpi-sub">${alertCount===0?'Tout conforme':'Vérifier SMIC / CCM'}</div></div>
+    <div class="kpi ${alertCount>0?'c-danger':'c-teal'}"><div class="kpi-icon">${alertCount>0?'⚠️':'✅'}</div><div class="kpi-lbl">Alertes H.Sup</div><div class="kpi-val">${alertCount}</div><div class="kpi-sub">${alertCount===0?'Sous le contingent':'Contingent annuel dépassé'}</div></div>
     <div class="kpi c-accent"><div class="kpi-icon">💰</div><div class="kpi-lbl">Taux horaire moyen</div><div class="kpi-val num">${avgRate.toFixed(2)}€</div><div class="kpi-sub">vs SMIC ${settings.smic.toFixed(2)}€</div></div>
     <div class="kpi c-teal"><div class="kpi-icon">📊</div><div class="kpi-lbl">Coût / salarié / mois</div><div class="kpi-val num">${active.length?fmt(agg.cost/12/active.length):'—'}</div><div class="kpi-sub">Coût employeur moyen</div></div>
   `;
@@ -1163,7 +1163,6 @@ function renderTable() {
     const ccmTaux = getCcmMinRate(classeNum);
     const effMin = getEffectiveMin(classeNum);
     const rate = parseFloat(e.taux_horaire)||0;
-    const rateStatus = rate < settings.smic ? 'danger' : (ccmTaux > settings.smic && rate < ccmTaux) ? 'warn' : 'ok';
     const delta = (rate - effMin);
     const hSupWarnAnnual = s.hSupAnnual > settings.quotaHSup;
     const alertIcon = alerts.length ? `<span style="color:var(--warn)">⚠️</span>` : '';
@@ -1183,8 +1182,8 @@ function renderTable() {
       <td data-label="H.Sup/sem" class="num" style="${hSupWarnAnnual?'color:var(--warn)':''}">${e.heures_sup_semaine||0}h${hSupWarnAnnual?' ⚠️':''}</td>
       <td data-label="SMIC €/h" class="num">${settings.smic.toFixed(2)}€</td>
       <td data-label="Mini CCM" class="num" style="${belowSmic?'color:var(--warn)':''}" title="${belowSmic?'Sous SMIC → SMIC s\'applique':''}">${ccmTaux.toFixed(2)}€${belowSmic?' ⚠️':''}</td>
-      <td data-label="Taux salarié"><div class="rate-cell"><span class="dot dot-${rateStatus}"></span><span class="rate-${rateStatus} num">${rate.toFixed(2)}€</span></div></td>
-      <td data-label="Δ vs CCM" class="num ${delta>=0?'rate-ok':'rate-danger'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
+      <td data-label="Taux salarié" class="num" title="Taux d'embauche">${rate.toFixed(2)}€</td>
+      <td data-label="Δ vs CCM" class="num" style="color:var(--muted)" title="${isMinWageExempt(e)?'Apprenti/stagiaire — barème légal spécifique, mini SMIC/CCM non applicable':delta<0?`Taux d'embauche sous le mini effectif — le SMIC/CCM (${effMin.toFixed(2)}€) s'applique automatiquement à la paie`:'Taux d\'embauche déjà au-dessus du mini effectif'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
       <td data-label="Brut/mois" class="num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
       <td data-label="H.Sup brut/mois" class="num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
       <td data-label="Brut/an" class="num">${fmt(s.annual)}</td>
@@ -1321,7 +1320,9 @@ function updateEtp() {
 }
 
 function renderCcmAnalysis() {
-  const active = getActiveEmployees();
+  // Apprentis/stagiaires suivent un barème légal à part (isMinWageExempt) —
+  // exclus de cette analyse SMIC/CCM qui ne les concerne pas.
+  const active = getActiveEmployees().filter(e=>!isMinWageExempt(e));
   const total = active.length;
   // Conforme = taux >= max(CCM tauxMin, SMIC)
   const aboveCcm = active.filter(e=>{ const rate=parseFloat(e.taux_horaire)||0; return rate>=getEffectiveMin(resolveClasse(e)); });
@@ -1331,20 +1332,21 @@ function renderCcmAnalysis() {
   const avgCcmMin = Object.values(ccmClasses).reduce((s,c)=>s+Math.max(c.tauxMin,settings.smic),0)/Object.keys(ccmClasses).length;
   document.getElementById('ccm-analysis').innerHTML = `
     <div class="res-box" style="margin-top:0">
-      <div class="res-row"><span>Salariés conformes CCM/SMIC</span><span style="color:var(--success)">${aboveCcm.length}/${total} (${pctConf}%)</span></div>
-      <div class="res-row"><span>Sous le mini effectif (CCM ou SMIC)</span><span style="color:${belowCcm>0?'var(--warn)':'var(--success)'}">${belowCcm}</span></div>
-      <div class="res-row"><span>Sous le SMIC seul ⚠️ illégal</span><span style="color:${belowSmic.length>0?'var(--danger)':'var(--success)'}">${belowSmic.length}</span></div>
-      <div class="res-row"><span>Cl.1-2 sous SMIC (SMIC s'applique)</span><span style="color:var(--warn)">Classes A1 (11.92€) et A2 (12.01€)</span></div>
+      <div class="res-row"><span>Salariés au taux d'embauche ≥ mini effectif</span><span style="color:var(--success)">${aboveCcm.length}/${total} (${pctConf}%)</span></div>
+      <div class="res-row"><span>Taux d'embauche sous le mini effectif (ajusté auto à la paie)</span><span style="color:var(--muted)">${belowCcm}</span></div>
+      <div class="res-row"><span>dont sous le SMIC seul (SMIC s'applique auto)</span><span style="color:var(--muted)">${belowSmic.length}</span></div>
+      <div class="res-row"><span>Cl.1-2 sous SMIC (SMIC s'applique)</span><span style="color:var(--muted)">Classes A1 (11.92€) et A2 (12.01€)</span></div>
       <div class="res-row"><span>Mini CCM effectif moyen (18 classes)</span><span>${avgCcmMin.toFixed(2)}€/h</span></div>
+      <div class="res-row"><span style="color:var(--muted);font-size:11px">Hors apprentis/stagiaires (barème spécifique)</span><span></span></div>
     </div>
     ${belowCcm>0?`<div style="margin-top:10px;font-size:12px;color:var(--muted)">
-      <b style="color:var(--warn)">Salariés sous le mini effectif :</b>
+      <b>Paie ajustée automatiquement au SMIC/CCM (taux d'embauche inchangé) :</b>
       ${active.filter(e=>(parseFloat(e.taux_horaire)||0)<getEffectiveMin(resolveClasse(e))).map(e=>{
         const cn=resolveClasse(e); const cl=getCcmClass(cn); const effMin=getEffectiveMin(cn);
-        return `<div style="margin-top:5px;padding:6px 8px;background:rgba(245,158,11,.07);border-radius:6px;border-left:2px solid var(--warn)">
+        return `<div style="margin-top:5px;padding:6px 8px;background:rgba(124,108,248,.07);border-radius:6px;border-left:2px solid var(--accent)">
           <b>${e.prenom} ${e.nom}</b> (Cl.${cn}/${cl.groupe} — ${cl.label})<br>
-          Taux : ${(parseFloat(e.taux_horaire)||0).toFixed(2)}€ / Mini effectif : ${effMin.toFixed(2)}€
-          → Δ mensuel à régulariser : ${fmt((effMin-(parseFloat(e.taux_horaire)||0))*settings.baseH)}
+          Taux d'embauche : ${(parseFloat(e.taux_horaire)||0).toFixed(2)}€ / Mini effectif : ${effMin.toFixed(2)}€
+          → Δ mensuel pris en charge automatiquement : ${fmt((effMin-(parseFloat(e.taux_horaire)||0))*settings.baseH)}
         </div>`;}).join('')}
     </div>`:''}
   `;
@@ -1481,7 +1483,9 @@ function updateModalCalc() {
   }
   document.getElementById('f-groupe').value = groupe;
 
-  const fakeEmp = {taux_horaire:rate, heures_semaine:hSem, heures_sup_semaine:hSup};
+  const contrat = document.getElementById('f-contrat')?.value || 'CDI';
+  const fakeEmp = {taux_horaire:rate, heures_semaine:hSem, heures_sup_semaine:hSup, classe_num:classeNum, type_contrat:contrat};
+  const exempt = isMinWageExempt(fakeEmp);
   const s = calcSalary(fakeEmp);
 
   document.getElementById('mc-smic').textContent = settings.smic.toFixed(2)+'€/h';
@@ -1493,9 +1497,9 @@ function updateModalCalc() {
   document.getElementById('mc-charged').textContent = fmt(s.costAnnual);
 
   let hint = '';
-  if (rate>0 && rate<settings.smic) hint=`⛔ Taux inférieur au SMIC (${settings.smic.toFixed(2)}€) — illégal`;
-  else if (rate>0 && ccmTaux>settings.smic && rate<ccmTaux) hint=`⚠️ Taux inférieur au mini CCM Classe ${classeNum}/${groupe} (${ccmTaux.toFixed(2)}€) — à régulariser`;
-  else if (rate>0) hint=`✅ Conforme. Mini effectif : ${effMin.toFixed(2)}€/h · Δ vs CCM/SMIC : +${(rate-effMin).toFixed(2)}€/h · SMH mensuel CCM : ${cl.smhMensuel.toLocaleString('fr-FR')}€`;
+  if (exempt && rate>0) hint=`ℹ️ Apprenti/stagiaire — barème légal spécifique (% du SMIC selon âge/année), mini SMIC/CCM non applicable`;
+  else if (rate>0 && rate<effMin) hint=`ℹ️ Taux d'embauche (${rate.toFixed(2)}€) sous le mini effectif (${effMin.toFixed(2)}€) — le SMIC/CCM s'applique automatiquement à la paie, aucune régularisation manuelle nécessaire`;
+  else if (rate>0) hint=`✅ Mini effectif : ${effMin.toFixed(2)}€/h · Δ vs CCM/SMIC : +${(rate-effMin).toFixed(2)}€/h · SMH mensuel CCM : ${cl.smhMensuel.toLocaleString('fr-FR')}€`;
   document.getElementById('modal-hint').textContent = hint;
   document.getElementById('modal-hint').style.display = hint?'':'none';
 }
