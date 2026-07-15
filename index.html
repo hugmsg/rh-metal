@@ -288,6 +288,34 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 .bulk-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 
+/* ── OPTI COLLAPSIBLE ── */
+.opti-title{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.opti-toggle{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;transition:.2s}
+.opti-card.collapsed .opti-body{display:none}
+.opti-card.collapsed .opti-toggle{transform:rotate(-90deg)}
+.opti-body{animation:fadeIn .15s ease}
+
+/* ── SIM INDIVIDUELLE ── */
+.sim-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.sim-table th{padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);white-space:nowrap}
+.sim-table td{padding:6px 10px;border-bottom:1px solid rgba(42,46,69,.4);vertical-align:middle}
+.sim-table tr:last-child td{border-bottom:none}
+.sim-table tr.hypo-row td{background:rgba(0,201,167,.04)}
+.sim-input{width:72px;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:4px 6px;color:var(--text);font-size:12px;font-weight:600;outline:none;text-align:right}
+.sim-input:focus{border-color:var(--accent)}
+.sim-input.changed{border-color:var(--teal);background:rgba(0,201,167,.07)}
+.sim-delta-pos{color:var(--danger);font-weight:700}
+.sim-delta-neg{color:var(--success);font-weight:700}
+.sim-delta-zero{color:var(--muted)}
+.sim-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px;background:rgba(124,108,248,.06);border:1px solid rgba(124,108,248,.2);border-radius:var(--r-sm);padding:14px}
+.sim-summary-item{text-align:center}
+.sim-summary-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
+.sim-summary-val{font-size:18px;font-weight:800}
+.add-hypo{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;align-items:end;background:rgba(0,201,167,.05);border:1px dashed rgba(0,201,167,.3);border-radius:var(--r-sm);padding:12px;margin-top:12px}
+.add-hypo label{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px}
+.add-hypo input,.add-hypo select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 8px;color:var(--text);font-size:12px;outline:none}
+.add-hypo input:focus,.add-hypo select:focus{border-color:var(--teal)}
+
 /* ── PRINT ── */
 @media print{
   #header,.nav-btn:not(.active),.actions-row,.overlay,.bottom-nav,.fab{display:none}
@@ -496,49 +524,138 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 
     <div class="section-header" style="margin-bottom:16px">
       <div class="section-title">🎯 Optimisation de la masse salariale</div>
+      <div class="actions-row">
+        <button class="btn btn-ghost btn-sm" onclick="toggleAllOptiCards(true)">▶ Tout réduire</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleAllOptiCards(false)">▼ Tout ouvrir</button>
+      </div>
     </div>
 
     <div class="opti-grid">
 
       <!-- SIMULATION SMIC -->
-      <div class="opti-card">
-        <div class="opti-title">📈 Simulation hausse SMIC / Revalorisation</div>
-        <div class="slider-lbl"><span>Hausse générale des taux (%)</span><span id="sim-pct-val">0%</span></div>
-        <input type="range" min="0" max="15" step="0.5" value="0" id="sim-pct" oninput="updateSim()">
-        <div class="slider-lbl" style="margin-top:10px"><span>Appliquer uniquement si taux &lt; CCM min</span>
-          <label><input type="checkbox" id="sim-only-below" onchange="updateSim()"> Only below</label>
+      <div class="opti-card" id="card-smic">
+        <div class="opti-title" onclick="toggleCard('card-smic')">
+          <span>📈 Simulation hausse SMIC / Revalorisation globale</span>
+          <button class="opti-toggle">▼</button>
         </div>
-        <div class="res-box" id="sim-result"></div>
+        <div class="opti-body">
+          <div class="slider-lbl" style="margin-top:10px"><span>Hausse générale des taux (%)</span><span id="sim-pct-val">0%</span></div>
+          <input type="range" min="0" max="15" step="0.5" value="0" id="sim-pct" oninput="updateSim()">
+          <div class="slider-lbl" style="margin-top:10px">
+            <span>Uniquement les taux sous le mini CCM/SMIC</span>
+            <label style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="sim-only-below" onchange="updateSim()"> Oui</label>
+          </div>
+          <div class="res-box" id="sim-result"></div>
+        </div>
       </div>
 
       <!-- HEURES SUP -->
-      <div class="opti-card">
-        <div class="opti-title">⏰ Impact heures supplémentaires</div>
-        <div class="slider-lbl"><span>H.sup supplémentaires/sem (tout le monde)</span><span id="hsup-add-val">+0h</span></div>
-        <input type="range" min="-8" max="8" step="0.5" value="0" id="hsup-add" oninput="updateHsup()">
-        <div class="slider-lbl" style="margin-top:8px"><span>% salariés concernés</span><span id="hsup-pct-val">100%</span></div>
-        <input type="range" min="0" max="100" step="5" value="100" id="hsup-pct" oninput="updateHsup()">
-        <div class="res-box" id="hsup-result"></div>
+      <div class="opti-card" id="card-hsup">
+        <div class="opti-title" onclick="toggleCard('card-hsup')">
+          <span>⏰ Impact heures supplémentaires globales</span>
+          <button class="opti-toggle">▼</button>
+        </div>
+        <div class="opti-body">
+          <div class="slider-lbl" style="margin-top:10px"><span>H.Sup supplémentaires / sem</span><span id="hsup-add-val">+0h</span></div>
+          <input type="range" min="-8" max="8" step="0.5" value="0" id="hsup-add" oninput="updateHsup()">
+          <div class="slider-lbl" style="margin-top:8px"><span>% de l'effectif concerné</span><span id="hsup-pct-val">100%</span></div>
+          <input type="range" min="0" max="100" step="5" value="100" id="hsup-pct" oninput="updateHsup()">
+          <div class="res-box" id="hsup-result"></div>
+        </div>
       </div>
 
       <!-- EFFECTIF -->
-      <div class="opti-card">
-        <div class="opti-title">👥 Simulation effectif</div>
-        <div class="slider-lbl"><span>Ajouter des ETP (par groupe)</span></div>
-        <div id="etp-sliders"></div>
-        <div class="res-box" id="etp-result"></div>
+      <div class="opti-card" id="card-etp">
+        <div class="opti-title" onclick="toggleCard('card-etp')">
+          <span>👥 Simulation effectif — ETP par groupe</span>
+          <button class="opti-toggle">▼</button>
+        </div>
+        <div class="opti-body">
+          <div id="etp-sliders"></div>
+          <div class="res-box" id="etp-result"></div>
+        </div>
       </div>
 
       <!-- ANALYSE CCM -->
-      <div class="opti-card">
-        <div class="opti-title">⚖️ Analyse conformité CCM</div>
-        <div id="ccm-analysis"></div>
+      <div class="opti-card" id="card-ccm">
+        <div class="opti-title" onclick="toggleCard('card-ccm')">
+          <span>⚖️ Analyse conformité CCM</span>
+          <button class="opti-toggle">▼</button>
+        </div>
+        <div class="opti-body">
+          <div id="ccm-analysis"></div>
+        </div>
       </div>
 
-      <!-- TABLEAU OPTI FULL -->
-      <div class="opti-card opti-full">
-        <div class="opti-title">📊 Scénarios comparatifs</div>
-        <div id="scenario-table"></div>
+      <!-- SCÉNARIOS COMPARATIFS -->
+      <div class="opti-card opti-full" id="card-scenarios">
+        <div class="opti-title" onclick="toggleCard('card-scenarios')">
+          <span>📊 Scénarios comparatifs</span>
+          <button class="opti-toggle">▼</button>
+        </div>
+        <div class="opti-body">
+          <div id="scenario-table"></div>
+        </div>
+      </div>
+
+      <!-- SIMULATION INDIVIDUELLE -->
+      <div class="opti-card opti-full" id="card-indiv">
+        <div class="opti-title" onclick="toggleCard('card-indiv')">
+          <span>🧑‍💼 Simulation individuelle — taux, heures & recrutements</span>
+          <button class="opti-toggle">▼</button>
+        </div>
+        <div class="opti-body">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
+            Modifiez le taux horaire et/ou les heures supp de chaque salarié pour simuler l'impact sur la masse salariale. Ajoutez des recrutements hypothétiques en bas du tableau.
+            <button class="btn btn-ghost btn-sm" style="margin-left:10px" onclick="resetIndivSim()">↺ Réinitialiser</button>
+          </p>
+          <div style="overflow-x:auto">
+            <table class="sim-table" id="sim-indiv-table">
+              <thead>
+                <tr>
+                  <th>Salarié</th>
+                  <th>Grp/Cl</th>
+                  <th>H/sem</th>
+                  <th>H.Sup/sem act.</th>
+                  <th>Taux actuel</th>
+                  <th style="color:var(--teal)">→ Nouveau taux</th>
+                  <th style="color:var(--teal)">→ H.Sup/sem</th>
+                  <th>Brut/mois actuel</th>
+                  <th>Brut/mois simulé</th>
+                  <th>Δ/mois</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="sim-indiv-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Ajouter un salarié hypothétique -->
+          <div style="font-size:12px;font-weight:700;color:var(--teal);margin:14px 0 6px">➕ Ajouter un salarié hypothétique</div>
+          <div class="add-hypo">
+            <div><label>Prénom Nom</label><input id="hypo-nom" placeholder="Ex: Paul MARTIN"></div>
+            <div><label>Classe CCM (1→18)</label>
+              <select id="hypo-classe">
+                <option value="1">Cl.1 — Grp A</option><option value="2">Cl.2 — Grp A</option>
+                <option value="3">Cl.3 — Grp B</option><option value="4">Cl.4 — Grp B</option>
+                <option value="5">Cl.5 — Grp C</option><option value="6">Cl.6 — Grp C</option>
+                <option value="7">Cl.7 — Grp D</option><option value="8">Cl.8 — Grp D</option>
+                <option value="9">Cl.9 — Grp E</option><option value="10">Cl.10 — Grp E</option>
+                <option value="11">Cl.11 — Grp F</option><option value="12">Cl.12 — Grp F</option>
+                <option value="13">Cl.13 — Grp G</option><option value="14">Cl.14 — Grp G</option>
+                <option value="15">Cl.15 — Grp H</option><option value="16">Cl.16 — Grp H</option>
+                <option value="17">Cl.17 — Grp I</option><option value="18">Cl.18 — Grp I</option>
+              </select>
+            </div>
+            <div><label>H/sem</label><input id="hypo-heures" type="number" value="35" min="1" max="48" step="0.5"></div>
+            <div><label>H.Sup/sem</label><input id="hypo-hsup" type="number" value="0" min="0" max="20" step="0.5"></div>
+            <div><label>Taux €/h</label><input id="hypo-taux" type="number" step="0.01" placeholder="Mini CCM auto"></div>
+            <div style="align-self:end"><button class="btn btn-teal btn-sm" onclick="addHypoEmployee()" style="width:100%">+ Ajouter</button></div>
+          </div>
+
+          <!-- Récapitulatif simulation -->
+          <div class="sim-summary" id="sim-indiv-summary"></div>
+        </div>
       </div>
 
     </div>
@@ -1244,6 +1361,7 @@ function renderOptim() {
   updateEtp();
   renderCcmAnalysis();
   renderScenarios();
+  renderIndivSim();
 }
 
 function updateSim() {
@@ -1613,6 +1731,215 @@ function SAMPLE_EMPLOYEES() {
     {id:'s8',nom:'PETIT',prenom:'Nathalie',date_entree:'2016-07-01',date_sortie:null,type_contrat:'CDI',poste:'Directrice Commerciale',classe_num:15,groupe:'H',heures_semaine:39,heures_sup_semaine:0,taux_horaire:27.50,notes:'Cl.15 — SMH 47000€/an, Cadre Gpe H'},
     {id:'s9',nom:'ROBERT',prenom:'François',date_entree:'2022-03-14',date_sortie:'2023-12-31',type_contrat:'CDD',poste:'Technicien BE',classe_num:7,groupe:'D',heures_semaine:35,heures_sup_semaine:0,taux_horaire:14.60,notes:'CDD terminé — Cl.7'},
   ];
+}
+
+// ═══════════════════════════════════════════
+// ACCORDÉON ONGLET OPTIMISATION
+// ═══════════════════════════════════════════
+function toggleCard(cardId) {
+  const card = document.getElementById(cardId);
+  if (card) card.classList.toggle('collapsed');
+}
+function toggleAllOptiCards(collapse) {
+  document.querySelectorAll('.opti-card').forEach(c => {
+    c.classList.toggle('collapsed', collapse);
+  });
+}
+
+// ═══════════════════════════════════════════
+// SIMULATION INDIVIDUELLE
+// ═══════════════════════════════════════════
+let simIndivOverrides = {}; // {empId: {taux_horaire?, heures_sup_semaine?}}
+let hypoEmployees = [];     // [{nom, classe_num, heures_semaine, heures_sup_semaine, taux_horaire}]
+
+function renderIndivSim() {
+  const active = getActiveEmployees();
+  const GC = getGroupeColors();
+  const tbody = document.getElementById('sim-indiv-body');
+  if (!tbody) return;
+
+  const baseTotal = active.reduce((s,e) => s + calcSalary(e).monthly, 0);
+
+  // Rows: existing employees
+  let rows = active.map(e => {
+    const cn = resolveClasse(e);
+    const cl = getCcmClass(cn);
+    const ov = simIndivOverrides[e.id] || {};
+    const curTaux = parseFloat(e.taux_horaire) || 0;
+    const curHsup = parseFloat(e.heures_sup_semaine) || 0;
+    const newTaux = ov.taux_horaire !== undefined ? ov.taux_horaire : curTaux;
+    const newHsup = ov.heures_sup_semaine !== undefined ? ov.heures_sup_semaine : curHsup;
+    const curSal = calcSalary(e).monthly;
+    const simSal = calcSalary({...e, taux_horaire: newTaux, heures_sup_semaine: newHsup}).monthly;
+    const delta = simSal - curSal;
+    const hasChange = ov.taux_horaire !== undefined || ov.heures_sup_semaine !== undefined;
+    return `<tr style="${hasChange?'background:rgba(124,108,248,.04)':''}">
+      <td><b>${e.nom}</b> ${e.prenom}<br><span style="font-size:10px;color:var(--muted)">${e.poste||''}</span></td>
+      <td><div class="grp-badge grp-${cl.groupe}" style="display:inline-flex">${cl.groupe}</div> <span style="font-size:10px;color:var(--muted)">Cl.${cn}</span></td>
+      <td class="num">${e.heures_semaine||35}h</td>
+      <td class="num">${curHsup}h</td>
+      <td class="num">${curTaux.toFixed(2)}€</td>
+      <td><input class="sim-input ${ov.taux_horaire!==undefined?'changed':''}" type="number" step="0.01" value="${newTaux.toFixed(2)}"
+          oninput="setSimOverride('${e.id}','taux',this.value)" title="Mini effectif : ${getEffectiveMin(cn).toFixed(2)}€/h"></td>
+      <td><input class="sim-input ${ov.heures_sup_semaine!==undefined?'changed':''}" type="number" step="0.5" min="0" max="20" value="${newHsup}"
+          oninput="setSimOverride('${e.id}','hsup',this.value)"></td>
+      <td class="num">${fmt(curSal)}</td>
+      <td class="num" style="${hasChange?'font-weight:700;color:var(--text)':''}">${fmt(simSal)}</td>
+      <td class="num ${delta>0?'sim-delta-pos':delta<0?'sim-delta-neg':'sim-delta-zero'}">${delta>=0?'+':''}${fmt(delta)}</td>
+      <td><button class="btn btn-ghost btn-xs" onclick="resetOneEmp('${e.id}')" title="Réinitialiser" style="opacity:.5">↺</button></td>
+    </tr>`;
+  });
+
+  // Rows: hypothetical employees
+  hypoEmployees.forEach((h, idx) => {
+    const cn = h.classe_num;
+    const cl = getCcmClass(cn);
+    const simSal = calcSalary(h).monthly;
+    rows.push(`<tr class="hypo-row">
+      <td><b style="color:var(--teal)">${h.nom}</b> <span style="font-size:10px;background:rgba(0,201,167,.15);color:var(--teal);padding:1px 5px;border-radius:10px">hypothétique</span></td>
+      <td><div class="grp-badge grp-${cl.groupe}" style="display:inline-flex">${cl.groupe}</div> <span style="font-size:10px;color:var(--muted)">Cl.${cn}</span></td>
+      <td class="num">${h.heures_semaine}h</td>
+      <td class="num">${h.heures_sup_semaine}h</td>
+      <td class="num">—</td>
+      <td><input class="sim-input changed" type="number" step="0.01" value="${h.taux_horaire.toFixed(2)}"
+          oninput="updateHypo(${idx},'taux',this.value)"></td>
+      <td><input class="sim-input changed" type="number" step="0.5" min="0" max="20" value="${h.heures_sup_semaine}"
+          oninput="updateHypo(${idx},'hsup',this.value)"></td>
+      <td class="num" style="color:var(--muted)">—</td>
+      <td class="num" style="font-weight:700;color:var(--teal)">${fmt(simSal)}</td>
+      <td class="num sim-delta-pos">+${fmt(simSal)}</td>
+      <td><button class="btn btn-danger btn-xs" onclick="removeHypo(${idx})">✕</button></td>
+    </tr>`);
+  });
+
+  tbody.innerHTML = rows.join('');
+  updateIndivSimSummary();
+}
+
+function setSimOverride(empId, field, value) {
+  if (!simIndivOverrides[empId]) simIndivOverrides[empId] = {};
+  const num = parseFloat(value);
+  if (field === 'taux') simIndivOverrides[empId].taux_horaire = isNaN(num) ? undefined : num;
+  if (field === 'hsup') simIndivOverrides[empId].heures_sup_semaine = isNaN(num) ? undefined : num;
+  // Don't re-render (would lose input focus), just update summary + style
+  updateInputStyle(empId);
+  updateIndivSimSummary();
+}
+
+function updateInputStyle(empId) {
+  const ov = simIndivOverrides[empId] || {};
+  const inputs = document.querySelectorAll(`[oninput*="'${empId}'"]`);
+  inputs.forEach(inp => {
+    const isTaux = inp.getAttribute('oninput').includes("'taux'");
+    const hasChange = isTaux ? ov.taux_horaire !== undefined : ov.heures_sup_semaine !== undefined;
+    inp.classList.toggle('changed', hasChange);
+    // Update calculated cells in same row
+    const emp = employees.find(e => e.id === empId);
+    if (emp) {
+      const tr = inp.closest('tr');
+      if (tr) {
+        const curTaux = parseFloat(emp.taux_horaire)||0;
+        const curHsup = parseFloat(emp.heures_sup_semaine)||0;
+        const newTaux = ov.taux_horaire !== undefined ? ov.taux_horaire : curTaux;
+        const newHsup = ov.heures_sup_semaine !== undefined ? ov.heures_sup_semaine : curHsup;
+        const curSal = calcSalary(emp).monthly;
+        const simSal = calcSalary({...emp, taux_horaire: newTaux, heures_sup_semaine: newHsup}).monthly;
+        const delta = simSal - curSal;
+        const cells = tr.querySelectorAll('td');
+        // cells[8] = brut simulé, cells[9] = delta
+        if (cells[8]) { cells[8].textContent = new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(simSal); cells[8].style.fontWeight = '700'; }
+        if (cells[9]) {
+          cells[9].textContent = (delta>=0?'+':'') + new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(delta);
+          cells[9].className = 'num ' + (delta>0?'sim-delta-pos':delta<0?'sim-delta-neg':'sim-delta-zero');
+        }
+      }
+    }
+  });
+}
+
+function updateIndivSimSummary() {
+  const active = getActiveEmployees();
+  const currentTotal = active.reduce((s,e) => s + calcSalary(e).monthly, 0);
+  const simTotal = active.reduce((s,e) => {
+    const ov = simIndivOverrides[e.id] || {};
+    return s + calcSalary({
+      ...e,
+      taux_horaire: ov.taux_horaire !== undefined ? ov.taux_horaire : e.taux_horaire,
+      heures_sup_semaine: ov.heures_sup_semaine !== undefined ? ov.heures_sup_semaine : e.heures_sup_semaine,
+    }).monthly;
+  }, 0) + hypoEmployees.reduce((s,h) => s + calcSalary(h).monthly, 0);
+
+  const delta = simTotal - currentTotal;
+  const deltaAnnual = delta * 12;
+  const deltaCost = deltaAnnual * (1 + settings.charges/100);
+  const GC = getGroupeColors();
+
+  const sumEl = document.getElementById('sim-indiv-summary');
+  if (!sumEl) return;
+  sumEl.innerHTML = `
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Masse sal. actuelle / mois</div>
+      <div class="sim-summary-val" style="color:var(--muted)">${fmt(currentTotal)}</div>
+    </div>
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Masse sal. simulée / mois</div>
+      <div class="sim-summary-val" style="color:var(--accent)">${fmt(simTotal)}</div>
+    </div>
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Δ mensuel</div>
+      <div class="sim-summary-val ${delta>0?'sim-delta-pos':delta<0?'sim-delta-neg':'sim-delta-zero'}">${delta>=0?'+':''}${fmt(delta)}</div>
+    </div>
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Δ annuel (brut)</div>
+      <div class="sim-summary-val ${deltaAnnual>0?'sim-delta-pos':deltaAnnual<0?'sim-delta-neg':'sim-delta-zero'}">${deltaAnnual>=0?'+':''}${fmt(deltaAnnual)}</div>
+    </div>
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Δ coût employeur / an</div>
+      <div class="sim-summary-val ${deltaCost>0?'sim-delta-pos':deltaCost<0?'sim-delta-neg':'sim-delta-zero'}">${deltaCost>=0?'+':''}${fmt(deltaCost)}</div>
+    </div>
+    <div class="sim-summary-item">
+      <div class="sim-summary-lbl">Recrutements hypothétiques</div>
+      <div class="sim-summary-val" style="color:var(--teal)">${hypoEmployees.length}</div>
+    </div>
+  `;
+}
+
+function addHypoEmployee() {
+  const nom = document.getElementById('hypo-nom').value.trim() || 'Nouveau salarié';
+  const cn = parseInt(document.getElementById('hypo-classe').value) || 1;
+  const cl = getCcmClass(cn);
+  const hSem = parseFloat(document.getElementById('hypo-heures').value) || 35;
+  const hSup = parseFloat(document.getElementById('hypo-hsup').value) || 0;
+  let taux = parseFloat(document.getElementById('hypo-taux').value);
+  if (isNaN(taux) || taux <= 0) taux = getEffectiveMin(cn); // défaut = mini CCM
+  hypoEmployees.push({ nom, classe_num: cn, groupe: cl.groupe, heures_semaine: hSem, heures_sup_semaine: hSup, taux_horaire: taux });
+  // Reset form
+  document.getElementById('hypo-nom').value = '';
+  document.getElementById('hypo-taux').value = '';
+  renderIndivSim();
+}
+
+function updateHypo(idx, field, value) {
+  const num = parseFloat(value);
+  if (field === 'taux' && !isNaN(num)) hypoEmployees[idx].taux_horaire = num;
+  if (field === 'hsup' && !isNaN(num)) hypoEmployees[idx].heures_sup_semaine = num;
+  updateIndivSimSummary();
+}
+
+function removeHypo(idx) {
+  hypoEmployees.splice(idx, 1);
+  renderIndivSim();
+}
+
+function resetOneEmp(empId) {
+  delete simIndivOverrides[empId];
+  renderIndivSim();
+}
+
+function resetIndivSim() {
+  simIndivOverrides = {};
+  hypoEmployees = [];
+  renderIndivSim();
 }
 
 // ═══════════════════════════════════════════
