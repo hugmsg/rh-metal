@@ -1,6 +1,6 @@
 // Service Worker — RH Métallurgie Dashboard
 // Version du cache : incrémenter à chaque mise à jour majeure
-const CACHE_NAME = 'rh-metal-v2';
+const CACHE_NAME = 'rh-metal-v3';
 
 // App shell (HTML/manifest) : toujours vérifié en réseau d'abord pour ne jamais
 // rester bloqué sur une version périmée. Cache utilisé seulement hors-ligne.
@@ -9,7 +9,9 @@ const SHELL = ['./index.html', './manifest.json'];
 // Assets vraiment statiques : cache-first (changent rarement / jamais)
 const STATIC_ASSETS = [
   './icon.svg',
-  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 ];
 
 self.addEventListener('install', event => {
