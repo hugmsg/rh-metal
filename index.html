@@ -746,6 +746,18 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
       <button class="btn btn-ghost" onclick="resetSettings()">↺ Réinitialiser</button>
     </div>
 
+    <!-- Sync Supabase (partagée avec le module Pointage) -->
+    <div class="settings-section" style="margin-top:20px">
+      <div class="settings-title">☁️ Synchronisation Supabase</div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:14px">
+        Envoie vos salariés (stockés localement) vers la base Supabase partagée avec le module Pointage,
+        pour les rendre visibles sur tous vos appareils. Un salarié déjà présent (même nom/prénom, par ex.
+        déjà créé via le kiosque Pointage) sera enrichi plutôt que dupliqué. Au chargement, l'app récupère
+        automatiquement les données Supabase si elles existent déjà.
+      </p>
+      <button class="btn btn-primary" onclick="importEmployeesToSupabase()">☁️ Importer les salariés vers Supabase</button>
+    </div>
+
     <!-- Backup -->
     <div class="settings-section" style="margin-top:20px">
       <div class="settings-title">💾 Sauvegarde & Restauration</div>
@@ -1099,6 +1111,97 @@ function isMinWageExempt(emp) {
 }
 
 // ═══════════════════════════════════════════
+// SYNC SUPABASE — salariés (table `employes` partagée avec le module Pointage)
+// ═══════════════════════════════════════════
+function isUuid(v) {
+  return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+function mapSupabaseRowToEmployee(row) {
+  const classeNum = row.classe_num || 1;
+  const cl = getCcmClass(classeNum);
+  return {
+    id: row.id,
+    nom: row.nom || '',
+    prenom: row.prenom || '',
+    date_entree: row.date_entree || '',
+    date_sortie: row.date_sortie || null,
+    type_contrat: row.type_contrat || 'CDI',
+    poste: row.poste || '',
+    classe_num: classeNum,
+    groupe: cl.groupe,
+    heures_semaine: row.heures_semaine ?? 35,
+    heures_sup_semaine: row.heures_sup_semaine ?? 0,
+    taux_horaire: row.taux_horaire ?? 0,
+    notes: row.notes || '',
+  };
+}
+
+async function pushEmployeeToSupabase(emp) {
+  const db = window.SupabaseDB;
+  if (!db) return null;
+  const { data, error } = await db.rpc('upsert_employe_rh', {
+    p_id: isUuid(emp.id) ? emp.id : null,
+    p_nom: emp.nom,
+    p_prenom: emp.prenom,
+    p_classe_num: resolveClasse(emp),
+    p_taux_horaire: parseFloat(emp.taux_horaire) || 0,
+    p_heures_semaine: parseFloat(emp.heures_semaine) || 35,
+    p_heures_sup_semaine: parseFloat(emp.heures_sup_semaine) || 0,
+    p_date_entree: emp.date_entree || null,
+    p_date_sortie: emp.date_sortie || null,
+    p_type_contrat: emp.type_contrat || null,
+    p_poste: emp.poste || null,
+    p_notes: emp.notes || null,
+  });
+  if (error || data?.ok === false) {
+    ptgToast('⚠ Sync Supabase échouée : ' + (data?.message || error?.message || 'erreur inconnue'));
+    return null;
+  }
+  return data.id;
+}
+
+async function deleteEmployeeFromSupabase(id) {
+  const db = window.SupabaseDB;
+  if (!db || !isUuid(id)) return;
+  const { error } = await db.rpc('supprimer_employe_rh', { p_id: id });
+  if (error) ptgToast('⚠ Suppression Supabase échouée : ' + error.message);
+}
+
+async function syncEmployeesFromSupabase(opts = {}) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('get_employes_rh');
+  if (error) {
+    if (!opts.silent) ptgToast('⚠ Chargement Supabase échoué : ' + error.message);
+    return;
+  }
+  // Ne retient que les salariés déjà enrichis côté RH (classe_num renseigné) —
+  // un employé créé uniquement via le kiosque Pointage (classe_num vide) ne
+  // doit pas déclencher un écrasement des données locales.
+  const withRh = (data || []).filter(r => r.classe_num !== null && r.classe_num !== undefined);
+  if (!withRh.length) return; // rien d'importé côté RH — on garde les données locales
+  employees = withRh.map(mapSupabaseRowToEmployee);
+  saveData();
+  refresh();
+  renderSettings();
+}
+
+async function importEmployeesToSupabase() {
+  const db = window.SupabaseDB;
+  if (!db) { ptgToast('Supabase non configuré'); return; }
+  if (!employees.length) { ptgToast('Aucun salarié à importer'); return; }
+  if (!confirm(`Envoyer ${employees.length} salarié(s) vers Supabase ?\n\nUn salarié déjà présent avec le même nom/prénom (ex. créé via le kiosque Pointage) sera enrichi plutôt que dupliqué.`)) return;
+  let ok = 0, fail = 0;
+  for (const emp of employees) {
+    const id = await pushEmployeeToSupabase(emp);
+    if (id) ok++; else fail++;
+  }
+  ptgToast(`✓ ${ok} salarié(s) synchronisé(s)${fail ? `, ${fail} échec(s)` : ''}`);
+  await syncEmployeesFromSupabase({ silent: true });
+}
+
+// ═══════════════════════════════════════════
 // PERSISTENCE
 // ═══════════════════════════════════════════
 function loadData() {
@@ -1422,6 +1525,7 @@ function bulkDelete() {
   if (!selectedIds.size) return;
   const names = employees.filter(e=>selectedIds.has(e.id)).map(e=>`${e.prenom} ${e.nom}`).join(', ');
   if (!confirm(`Supprimer ${selectedIds.size} salarié(s) ?\n${names}`)) return;
+  const idsToDelete = [...selectedIds];
   employees = employees.filter(e=>!selectedIds.has(e.id));
   selectedIds.clear();
   saveData();
@@ -1430,17 +1534,20 @@ function bulkDelete() {
   updateBulkBar();
   const cbAll = document.getElementById('cb-all');
   if (cbAll) cbAll.checked = false;
+  idsToDelete.forEach(deleteEmployeeFromSupabase);
 }
 
 function bulkSetSortie() {
   if (!selectedIds.size) return;
   const today = new Date().toISOString().slice(0,10);
   if (!confirm(`Marquer ${selectedIds.size} salarié(s) comme sortis aujourd'hui (${fmtDate(today)}) ?`)) return;
-  employees.forEach(e=>{ if (selectedIds.has(e.id)) e.date_sortie = today; });
+  const changed = [];
+  employees.forEach(e=>{ if (selectedIds.has(e.id)) { e.date_sortie = today; changed.push(e); } });
   saveData();
   clearSelection();
   renderTable();
   renderDashboard();
+  changed.forEach(pushEmployeeToSupabase);
 }
 
 function bulkExportCSV() {
@@ -1868,6 +1975,14 @@ function saveEmployee() {
   saveData();
   closeModal();
   refresh();
+  pushEmployeeToSupabase(emp).then(newId => {
+    if (newId && newId !== emp.id) {
+      // Adopte l'uuid généré par Supabase pour un salarié créé localement
+      employees = employees.map(e => e.id === emp.id ? {...e, id: newId} : e);
+      saveData();
+      refresh();
+    }
+  });
 }
 
 function deleteEmp(id) {
@@ -1875,6 +1990,7 @@ function deleteEmp(id) {
   employees = employees.filter(e=>e.id!==id);
   saveData();
   refresh();
+  deleteEmployeeFromSupabase(id);
 }
 
 function filterAlerts() {
@@ -3112,6 +3228,7 @@ applyTheme(document.documentElement.getAttribute('data-theme') || 'dark');
 loadData();
 refresh();
 renderSettings();
+syncEmployeesFromSupabase({ silent: true });
 
 // ═══════════════════════════════════════════
 // SERVICE WORKER (PWA)
