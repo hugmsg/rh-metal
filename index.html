@@ -528,6 +528,12 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
       </div>
     </div>
 
+    <!-- Comptes sonotrad-pwa (Pointage) sans fiche RH -->
+    <div id="unlinked-ptg-section" style="display:none;margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">Comptes sonotrad-pwa sans fiche RH</div>
+      <div id="unlinked-ptg-list"></div>
+    </div>
+
     <!-- Barre d'actions groupées -->
     <div class="bulk-bar" id="bulk-bar">
       <span class="bulk-count" id="bulk-count">0 sélectionné(s)</span>
@@ -912,6 +918,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 <div class="overlay" id="modal-overlay">
 <div class="modal">
   <div class="modal-title" id="modal-title"><span>👤</span> Nouveau salarié</div>
+  <div id="modal-linked-badge" style="display:none;font-size:11px;color:#1D4ED8;background:#EFF6FF;padding:3px 8px;border-radius:8px;font-weight:600;margin:0 0 10px;">🔗 lié au compte sonotrad-pwa — nom/prénom verrouillés</div>
   <input type="hidden" id="edit-id">
 
   <div class="form-grid">
@@ -1168,6 +1175,8 @@ async function deleteEmployeeFromSupabase(id) {
   if (error) ptgToast('⚠ Suppression Supabase échouée : ' + error.message);
 }
 
+let unlinkedPtgAccounts = [];
+
 async function syncEmployeesFromSupabase(opts = {}) {
   const db = window.SupabaseDB;
   if (!db) return;
@@ -1176,15 +1185,36 @@ async function syncEmployeesFromSupabase(opts = {}) {
     if (!opts.silent) ptgToast('⚠ Chargement Supabase échoué : ' + error.message);
     return;
   }
+  const rows = data || [];
   // Ne retient que les salariés déjà enrichis côté RH (classe_num renseigné) —
   // un employé créé uniquement via le kiosque Pointage (classe_num vide) ne
-  // doit pas déclencher un écrasement des données locales.
-  const withRh = (data || []).filter(r => r.classe_num !== null && r.classe_num !== undefined);
+  // doit pas déclencher un écrasement des données locales. On garde ces
+  // comptes "sans fiche RH" à part pour les proposer dans l'onglet Équipe.
+  const withRh = rows.filter(r => r.classe_num !== null && r.classe_num !== undefined);
+  unlinkedPtgAccounts = rows.filter(r => r.classe_num === null || r.classe_num === undefined);
+  renderUnlinkedPtgAccounts();
   if (!withRh.length) return; // rien d'importé côté RH — on garde les données locales
   employees = withRh.map(mapSupabaseRowToEmployee);
   saveData();
   refresh();
   renderSettings();
+}
+
+function renderUnlinkedPtgAccounts() {
+  const box  = document.getElementById('unlinked-ptg-section');
+  const list = document.getElementById('unlinked-ptg-list');
+  if (!box || !list) return;
+  if (!unlinkedPtgAccounts.length) { box.style.display = 'none'; list.innerHTML = ''; return; }
+  box.style.display = 'block';
+  list.innerHTML = unlinkedPtgAccounts.map(e => `
+    <div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;padding:12px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:rgba(148,163,184,.2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👤</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;">${e.prenom} ${e.nom}</div>
+        <div style="font-size:12px;color:var(--muted);">Compte sonotrad-pwa — pas de fiche RH</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModalForUnlinked('${e.id}','${String(e.prenom||'').replace(/'/g,"\\'")}','${String(e.nom||'').replace(/'/g,"\\'")}')">Compléter la fiche</button>
+    </div>`).join('');
 }
 
 async function importEmployeesToSupabase() {
@@ -1887,6 +1917,9 @@ function renderSettings() {
 function openModal(id) {
   const overlay = document.getElementById('modal-overlay');
   overlay.classList.add('open');
+  document.getElementById('f-nom').readOnly = false;
+  document.getElementById('f-prenom').readOnly = false;
+  document.getElementById('modal-linked-badge').style.display = 'none';
   if (id) {
     const e = employees.find(x=>x.id===id);
     if (!e) return;
@@ -1918,6 +1951,21 @@ function openModal(id) {
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// Ouvre la modale pour compléter la fiche RH d'un compte sonotrad-pwa
+// existant (id Supabase réel) qui n'a pas encore de données RH — nom/prénom
+// verrouillés pour ne jamais introduire de casse/accents différents de la
+// ligne `employes` déjà liée au pin_hash côté kiosque Pointage.
+function openModalForUnlinked(id, prenom, nom) {
+  openModal();
+  document.getElementById('modal-title').innerHTML = '<span>🔗</span> Compléter la fiche RH';
+  document.getElementById('edit-id').value = id;
+  document.getElementById('f-nom').value = nom;
+  document.getElementById('f-nom').readOnly = true;
+  document.getElementById('f-prenom').value = prenom;
+  document.getElementById('f-prenom').readOnly = true;
+  document.getElementById('modal-linked-badge').style.display = 'inline-block';
 }
 
 function updateModalGroup() { updateModalCalc(); }
@@ -1970,7 +2018,7 @@ function saveEmployee() {
   const cl = getCcmClass(classeNum);
   const emp = {
     id: id || Date.now().toString(),
-    nom: document.getElementById('f-nom').value.trim().toUpperCase(),
+    nom: document.getElementById('f-nom').value.trim(),
     prenom: document.getElementById('f-prenom').value.trim(),
     date_entree: document.getElementById('f-entree').value,
     date_sortie: document.getElementById('f-sortie').value||null,
@@ -1984,11 +2032,20 @@ function saveEmployee() {
     notes: document.getElementById('f-notes').value.trim(),
   };
   if (!emp.nom) { alert('Le nom est requis'); return; }
-  if (id) employees = employees.map(e=>e.id===id?emp:e);
-  else employees.push(emp);
+  if (id) {
+    // id peut désigner un salarié déjà local (édition) OU un compte
+    // sonotrad-pwa "sans fiche RH" jamais encore ajouté à `employees`
+    // (complété via openModalForUnlinked) — dans ce 2e cas on l'ajoute.
+    const idx = employees.findIndex(e => e.id === id);
+    if (idx >= 0) employees[idx] = emp; else employees.push(emp);
+  } else {
+    employees.push(emp);
+  }
   saveData();
   closeModal();
   refresh();
+  unlinkedPtgAccounts = unlinkedPtgAccounts.filter(e => e.id !== id);
+  renderUnlinkedPtgAccounts();
   pushEmployeeToSupabase(emp).then(newId => {
     if (newId && newId !== emp.id) {
       // Adopte l'uuid généré par Supabase pour un salarié créé localement
