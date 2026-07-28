@@ -88,6 +88,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 /* ── CHARTS ── */
 .charts-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm)}
 .chart-title{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
 .chart-wrap{position:relative;height:200px}
 
@@ -437,6 +438,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
     <button class="nav-btn" data-tab="team" onclick="showTab('team')">👥 Mon équipe</button>
     <button class="nav-btn" data-tab="optim" onclick="showTab('optim')">🎯 Optimisation</button>
     <button class="nav-btn" data-tab="pointage" onclick="showTab('pointage')">🕐 Pointage</button>
+    <button class="nav-btn" data-tab="conges" onclick="showTab('conges')">🌴 Congés</button>
     <button class="nav-btn" data-tab="settings" onclick="showTab('settings')">⚙️ Paramètres</button>
   </nav>
   <div class="header-right">
@@ -454,6 +456,7 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
   <button class="bnav-btn" data-tab="team" onclick="showTab('team')"><span class="bn-ico">👥</span>Équipe</button>
   <button class="bnav-btn" data-tab="optim" onclick="showTab('optim')"><span class="bn-ico">🎯</span>Optim.</button>
   <button class="bnav-btn" data-tab="pointage" onclick="showTab('pointage')"><span class="bn-ico">🕐</span>Pointage</button>
+  <button class="bnav-btn" data-tab="conges" onclick="showTab('conges')"><span class="bn-ico">🌴</span>Congés</button>
   <button class="bnav-btn" data-tab="settings" onclick="showTab('settings')"><span class="bn-ico">⚙️</span>Réglages</button>
 </nav>
 
@@ -717,6 +720,37 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
       </div>
 
     </div>
+  </div>
+
+  <!-- ═══════════════ TAB: CONGÉS ═══════════════ -->
+  <div class="tab" id="tab-conges">
+    <div class="section-header">
+      <div class="section-title">🌴 Congés &amp; absences</div>
+      <div class="actions-row">
+        <button class="btn btn-primary btn-sm" onclick="openCongeModal()">+ Nouvelle absence</button>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table id="conges-table">
+        <thead>
+          <tr>
+            <th>Salarié</th>
+            <th data-tip="Acquis - pris sur la période en cours (1er juin → 31 mai), en jours ouvrés">Solde CP</th>
+            <th>CP pris (période)</th>
+            <th>Maladie (période)</th>
+            <th>Événements (période)</th>
+            <th>Sans solde (période)</th>
+          </tr>
+        </thead>
+        <tbody id="conges-table-body"></tbody>
+      </table>
+    </div>
+
+    <div class="section-header" style="margin-top:24px;">
+      <div class="section-title">Historique</div>
+    </div>
+    <div id="conges-history-list"></div>
   </div>
 
   <!-- ═══════════════ TAB: PARAMÈTRES ═══════════════ -->
@@ -987,6 +1021,41 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 </div>
 </div>
 
+<!-- ═══════════════ MODAL CONGÉ ═══════════════ -->
+<div class="overlay" id="conge-modal-overlay">
+<div class="modal">
+  <div class="modal-title" id="conge-modal-title"><span>🌴</span> Nouvelle absence</div>
+  <input type="hidden" id="cg-edit-id">
+
+  <div class="form-grid">
+    <div class="fg full"><label>Salarié</label>
+      <select id="cg-employe"></select>
+    </div>
+    <div class="fg"><label>Type</label>
+      <select id="cg-type" onchange="updateCongeModal()">
+        <option value="cp">Congés payés</option>
+        <option value="maladie">Maladie</option>
+        <option value="evenement_familial">Événement familial</option>
+        <option value="sans_solde">Sans solde</option>
+      </select>
+    </div>
+    <div class="fg" id="cg-motif-wrap" style="display:none;"><label>Motif</label>
+      <input id="cg-motif" placeholder="Mariage, naissance, décès...">
+    </div>
+    <div class="fg"><label>Date de début</label><input id="cg-debut" type="date" onchange="updateCongeModal()"></div>
+    <div class="fg"><label>Date de fin</label><input id="cg-fin" type="date" onchange="updateCongeModal()"></div>
+    <div class="fg full"><label>Notes / Observations</label><input id="cg-notes" placeholder="Optionnel"></div>
+  </div>
+
+  <div class="modal-hint" id="conge-modal-hint"></div>
+
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeCongeModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveConge()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
 <!-- Modal : ajouter un pointage de correction -->
 <div id="ptg-add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
   <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
@@ -1243,6 +1312,215 @@ function subscribeEmployesChanges() {
       syncEmployeesFromSupabase({ silent: true });
     })
     .subscribe();
+}
+
+// ═══════════════════════════════════════════
+// CONGÉS (Phase 3)
+// ═══════════════════════════════════════════
+let conges = [];
+
+// Compte les jours ouvrés (lundi-vendredi) entre 2 dates incluses. Ne
+// déduit pas les jours fériés (pas de calendrier de jours fériés géré ici) —
+// limitation connue, à corriger manuellement si un congé chevauche un férié.
+function countJoursOuvres(dateDebutStr, dateFinStr) {
+  const debut = new Date(dateDebutStr + 'T00:00:00');
+  const fin = new Date(dateFinStr + 'T00:00:00');
+  if (isNaN(debut) || isNaN(fin) || fin < debut) return 0;
+  let count = 0;
+  const d = new Date(debut);
+  while (d <= fin) {
+    const day = d.getDay(); // 0=dimanche, 6=samedi
+    if (day !== 0 && day !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
+// Période de référence CP : 1er juin N-1 → 31 mai N (règle légale standard).
+function getCpPeriod(refDate = new Date()) {
+  const y = refDate.getFullYear();
+  const juin1 = new Date(y, 5, 1);
+  if (refDate >= juin1) return { debut: new Date(y, 5, 1), fin: new Date(y + 1, 4, 31) };
+  return { debut: new Date(y - 1, 5, 1), fin: new Date(y, 4, 31) };
+}
+
+function sommeConges(empId, type, debut, fin) {
+  return conges
+    .filter(c => c.employe_id === empId && c.type === type)
+    .filter(c => { const d = new Date(c.date_debut + 'T00:00:00'); return d >= debut && d <= fin; })
+    .reduce((s, c) => s + parseFloat(c.jours), 0);
+}
+
+// Acquisition : 25j ouvrés/an (équivalent légal des 30j ouvrables), au
+// prorata du temps de présence dans la période depuis l'embauche.
+// Simplification connue : n'exclut pas du calcul d'acquisition les longues
+// absences maladie/sans solde (qui réduisent légalement l'acquisition réelle
+// au-delà d'un certain seuil) — à ajuster manuellement si besoin.
+function calcSoldeCP(emp) {
+  const { debut, fin } = getCpPeriod();
+  const today = new Date();
+  const entree = emp.date_entree ? new Date(emp.date_entree + 'T00:00:00') : debut;
+  const departCalcul = today < fin ? today : fin;
+  const debutAcquisition = entree > debut ? entree : debut;
+  const joursEcoules = Math.max(0, (departCalcul - debutAcquisition) / (1000 * 60 * 60 * 24));
+  const moisEcoules = joursEcoules / 30.44;
+  const acquis = Math.min(25, moisEcoules * (25 / 12));
+  const pris = sommeConges(emp.id, 'cp', debut, fin);
+  return {
+    acquis: Math.round(acquis * 10) / 10,
+    pris,
+    solde: Math.round((acquis - pris) * 10) / 10,
+  };
+}
+
+async function syncCongesFromSupabase() {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('get_conges_rh');
+  if (error) { console.error('[Congés] get_conges_rh:', error); return; }
+  conges = data || [];
+}
+
+function fmtDateFr(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR');
+}
+
+async function renderConges() {
+  await syncCongesFromSupabase();
+  _renderCongesTable();
+  _renderCongesHistory();
+}
+
+function _renderCongesTable() {
+  const tbody = document.getElementById('conges-table-body');
+  if (!tbody) return;
+  const { debut, fin } = getCpPeriod();
+  const active = getActiveEmployees();
+  if (!active.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px;">Aucun salarié actif</td></tr>'; return; }
+  tbody.innerHTML = active.map(e => {
+    const cp = calcSoldeCP(e);
+    const maladie = sommeConges(e.id, 'maladie', debut, fin);
+    const evt = sommeConges(e.id, 'evenement_familial', debut, fin);
+    const sansSolde = sommeConges(e.id, 'sans_solde', debut, fin);
+    return `<tr>
+      <td data-label="Salarié">${e.prenom} ${e.nom}</td>
+      <td data-label="Solde CP" class="num" style="font-weight:700;${cp.solde < 0 ? 'color:#DC2626;' : ''}">${cp.solde}j</td>
+      <td data-label="CP pris" class="num">${cp.pris}j</td>
+      <td data-label="Maladie" class="num">${maladie}j</td>
+      <td data-label="Événements" class="num">${evt}j</td>
+      <td data-label="Sans solde" class="num">${sansSolde}j</td>
+    </tr>`;
+  }).join('');
+}
+
+function _renderCongesHistory() {
+  const list = document.getElementById('conges-history-list');
+  if (!list) return;
+  const typeLabel = { cp: 'Congés payés', maladie: 'Maladie', evenement_familial: 'Événement familial', sans_solde: 'Sans solde' };
+  const sorted = [...conges].sort((a, b) => new Date(b.date_debut) - new Date(a.date_debut));
+  if (!sorted.length) { list.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:24px;">Aucune absence enregistrée</div>'; return; }
+  list.innerHTML = sorted.map(c => {
+    const emp = employees.find(e => e.id === c.employe_id);
+    const nom = emp ? `${emp.prenom} ${emp.nom}` : '(salarié introuvable)';
+    return `<div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;padding:12px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;">${nom} — ${typeLabel[c.type] || c.type}</div>
+        <div style="font-size:12px;color:var(--muted);">${fmtDateFr(c.date_debut)} → ${fmtDateFr(c.date_fin)} · ${c.jours}j${c.motif ? ' · ' + c.motif : ''}</div>
+      </div>
+      <button onclick="openCongeModal('${c.id}')" style="background:#F8FAFC;border:1.5px solid #E2E8F0;padding:6px 10px;border-radius:8px;cursor:pointer;flex-shrink:0;">✏️</button>
+      <button onclick="deleteConge('${c.id}')" style="background:#FEF2F2;border:1.5px solid #FECACA;color:#991B1B;padding:6px 10px;border-radius:8px;cursor:pointer;flex-shrink:0;">🗑️</button>
+    </div>`;
+  }).join('');
+}
+
+function openCongeModal(id) {
+  const overlay = document.getElementById('conge-modal-overlay');
+  overlay.classList.add('open');
+  const sel = document.getElementById('cg-employe');
+  sel.innerHTML = getActiveEmployees().map(e => `<option value="${e.id}">${e.prenom} ${e.nom}</option>`).join('');
+  if (id) {
+    const c = conges.find(x => x.id === id);
+    if (!c) return;
+    document.getElementById('conge-modal-title').innerHTML = '<span>✏️</span> Modifier absence';
+    document.getElementById('cg-edit-id').value = id;
+    sel.value = c.employe_id;
+    document.getElementById('cg-type').value = c.type;
+    document.getElementById('cg-debut').value = c.date_debut;
+    document.getElementById('cg-fin').value = c.date_fin;
+    document.getElementById('cg-motif').value = c.motif || '';
+    document.getElementById('cg-notes').value = c.notes || '';
+  } else {
+    document.getElementById('conge-modal-title').innerHTML = '<span>🌴</span> Nouvelle absence';
+    document.getElementById('cg-edit-id').value = '';
+    document.getElementById('cg-type').value = 'cp';
+    document.getElementById('cg-debut').value = '';
+    document.getElementById('cg-fin').value = '';
+    document.getElementById('cg-motif').value = '';
+    document.getElementById('cg-notes').value = '';
+  }
+  updateCongeModal();
+}
+
+function closeCongeModal() {
+  document.getElementById('conge-modal-overlay').classList.remove('open');
+}
+
+function updateCongeModal() {
+  const type = document.getElementById('cg-type').value;
+  document.getElementById('cg-motif-wrap').style.display = type === 'evenement_familial' ? '' : 'none';
+  const debut = document.getElementById('cg-debut').value;
+  const fin = document.getElementById('cg-fin').value;
+  const hint = document.getElementById('conge-modal-hint');
+  if (debut && fin) {
+    const jours = countJoursOuvres(debut, fin);
+    hint.textContent = jours > 0 ? `${jours} jour(s) ouvré(s)` : '⚠️ Dates invalides (fin avant début ?)';
+  } else {
+    hint.textContent = 'Renseigne les dates pour voir le nombre de jours ouvrés';
+  }
+}
+
+async function saveConge() {
+  const id = document.getElementById('cg-edit-id').value;
+  const employeId = document.getElementById('cg-employe').value;
+  const type = document.getElementById('cg-type').value;
+  const debut = document.getElementById('cg-debut').value;
+  const fin = document.getElementById('cg-fin').value;
+  const motif = document.getElementById('cg-motif').value.trim();
+  const notes = document.getElementById('cg-notes').value.trim();
+
+  if (!employeId) { alert('Sélectionne un salarié'); return; }
+  if (!debut || !fin) { alert('Dates requises'); return; }
+  const jours = countJoursOuvres(debut, fin);
+  if (jours <= 0) { alert('Période invalide'); return; }
+
+  const db = window.SupabaseDB;
+  if (!db) { alert('Supabase non configuré'); return; }
+  const { data, error } = await db.rpc('upsert_conge_rh', {
+    p_id: id || null,
+    p_employe_id: employeId,
+    p_type: type,
+    p_date_debut: debut,
+    p_date_fin: fin,
+    p_jours: jours,
+    p_motif: motif || null,
+    p_notes: notes || null,
+  });
+  if (error || data?.ok === false) {
+    alert('Erreur : ' + (data?.message || error?.message || 'inconnue'));
+    return;
+  }
+  closeCongeModal();
+  renderConges();
+}
+
+async function deleteConge(id) {
+  if (!confirm('Supprimer cette absence ?')) return;
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { error } = await db.rpc('supprimer_conge_rh', { p_id: id });
+  if (error) { alert('Erreur : ' + error.message); return; }
+  renderConges();
 }
 
 // ═══════════════════════════════════════════
@@ -2102,6 +2380,7 @@ function showTab(id) {
   if (id==='optim') renderOptim();
   if (id==='settings') renderSettings();
   if (id==='pointage') ptgShowSubView(_ptgSubView);
+  if (id==='conges') renderConges();
 }
 
 // ═══════════════════════════════════════════
