@@ -1201,6 +1201,20 @@ async function importEmployeesToSupabase() {
   await syncEmployeesFromSupabase({ silent: true });
 }
 
+// Écoute les changements de `employes` (édités depuis rh-metal ou sonotrad-pwa)
+// pour rafraîchir l'Équipe/Dashboard sans reload manuel. Canal public au
+// payload minimal {op,id} — jamais de pin_hash/nfc_uid dessus (voir migration
+// employes_broadcast_change côté sonotrad-pwa).
+let employesChannel = null;
+function subscribeEmployesChanges() {
+  if (employesChannel || !window.SupabaseDB) return;
+  employesChannel = window.SupabaseDB.channel('employes-changes')
+    .on('broadcast', { event: 'employes_changed' }, () => {
+      syncEmployeesFromSupabase({ silent: true });
+    })
+    .subscribe();
+}
+
 // ═══════════════════════════════════════════
 // PERSISTENCE
 // ═══════════════════════════════════════════
@@ -3229,6 +3243,7 @@ loadData();
 refresh();
 renderSettings();
 syncEmployeesFromSupabase({ silent: true });
+subscribeEmployesChanges();
 
 // ═══════════════════════════════════════════
 // SERVICE WORKER (PWA)
