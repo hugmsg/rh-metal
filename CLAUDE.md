@@ -2,11 +2,13 @@
 
 ## C'est quoi
 
-PWA mono-fichier (HTML+CSS+JS dans `index.html`, ~98 Ko, pas de build, pas de
+PWA mono-fichier (HTML+CSS+JS dans `index.html`, pas de build, pas de
 framework, pas de `node_modules`) pour gérer l'équipe d'une entreprise relevant
 de la **Convention Collective de la Métallurgie (IDCC 3248)**. Permet de
 suivre l'effectif, calculer les salaires/coûts employeur, vérifier la
-conformité aux minima de branche et simuler des scénarios RH.
+conformité aux minima de branche, simuler des scénarios RH, pointer les
+horaires (kiosque PIN) et suivre les congés/absences. En transformation
+progressive vers un SIRH complet (voir mémoire `project-supabase-migration`).
 
 Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 "Tableau de Bord RH — Convention Métallurgie" / "RH Métal".
@@ -15,22 +17,67 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 
 - `index.html` — toute l'app (HTML + CSS + JS inline, un seul fichier)
 - `manifest.json` — config PWA (nom, icône, thème)
-- `sw.js` — service worker (cache offline)
+- `sw.js` — service worker (cache offline) — bumper la version si des assets cachés changent
 - `icon.svg` — icône de l'app
+- `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
 
 ## Stockage des données
 
-**Tout est en `localStorage` du navigateur**, rien côté serveur :
-- `rh_employees` — liste des salariés
-- `rh_settings` — paramètres généraux (SMIC, charges, etc.)
-- `rh_ccm` — grille des classes CCM (peut être personnalisée par l'utilisateur)
-- `rh_theme` — thème clair/sombre
+**Hybride localStorage + Supabase**, pas un simple stockage local :
+
+- **Salariés (`employees`)** : `localStorage.rh_employees` reste la source pour
+  toute la logique RH en mémoire, mais synchronisé avec la table Supabase
+  partagée `employes` (projet `ajewxwxerrjnnervzjwm`, **partagé avec l'app
+  sonotrad-pwa** qui l'utilise pour son module Pointage/kiosque PIN). Chargé
+  au démarrage via `syncEmployeesFromSupabase()` (repli sur localStorage si
+  rien d'enrichi côté RH en base), chaque écriture répercutée vers Supabase.
+  Rafraîchissement temps réel via un canal broadcast (`subscribeEmployesChanges()`)
+  quand un salarié change côté sonotrad-pwa ou un autre appareil.
+- **Congés (`conges`)** : **Supabase uniquement**, pas de copie localStorage —
+  table dédiée `conges` (pas partagée avec sonotrad-pwa), chargée à l'ouverture
+  de l'onglet via `syncCongesFromSupabase()`.
+- **Pointages/heures journalières** : gérés côté Supabase par le module
+  Pointage (tables `pointages`, `heures_journalieres`), voir section dédiée.
+- `rh_settings` — paramètres généraux (SMIC, charges, etc.) — localStorage uniquement
+- `rh_ccm` — grille des classes CCM (peut être personnalisée par l'utilisateur) — localStorage uniquement
+- `rh_theme` — thème clair/sombre — localStorage uniquement
 
 Le déploiement (git push / Vercel) ne touche jamais aux données utilisateur.
-Sauvegarde/restauration via export/import JSON (`exportJSON()` / `importJSON()`
-dans `index.html`, `BACKUP_VERSION` à incrémenter si le format change).
+Sauvegarde/restauration des salariés/paramètres/CCM via export/import JSON
+(`exportJSON()` / `importJSON()` dans `index.html`, `BACKUP_VERSION` à
+incrémenter si le format change) — **ne couvre pas** les congés (Supabase
+uniquement, pas de fallback local).
+
+### Table Supabase partagée `employes` — contrat avec sonotrad-pwa
+
+Voir mémoire `shared-employes-table-sonotrad-rhmetal` pour le détail complet.
+Points essentiels à connaître avant de toucher à ce périmètre :
+
+- **Division des colonnes** : sonotrad-pwa possède `pin_hash`/`nfc_uid`/`actif`
+  (kiosque Pointage) ; rh-metal possède `classe_num`/`taux_horaire`/`heures_semaine`/
+  `heures_sup_semaine`/`date_entree`/`date_sortie`/`type_contrat`/`poste`/`notes`/`supprime`.
+- **Casse/accents** : convention retenue = **casse normale + accents** (ex.
+  "Breteau"/"Anaïs"), pas de TOUT-MAJUSCULE. `saveEmployee()` ne doit **jamais**
+  forcer `.toUpperCase()` sur le nom — ça a déjà cassé une donnée réelle en
+  prod une fois (régression corrigée le 2026-07-28).
+- **Clé de correspondance** : par `id` en priorité (`p_id` optionnel sur les
+  RPC `upsert_employe_rh`/`upsert_employe_pointage`), comparaison nom/prénom
+  normalisée (casse+accents ignorés) en repli uniquement — jamais de
+  comparaison stricte `ON CONFLICT (nom, prenom)` seule, source de doublons.
+- **Accès table** : RLS activé **sans aucune policy** sur `employes` (et
+  `conges`) — tout accès direct (anon/authenticated) est refusé par défaut,
+  seules les RPC `SECURITY DEFINER` (`get_employes_rh`, `upsert_employe_rh`,
+  `supprimer_employe_rh`, `get_conges_rh`, `upsert_conge_rh`,
+  `supprimer_conge_rh`, etc.) peuvent lire/écrire. Ne jamais ajouter de policy
+  `SELECT` permissive sur `employes` sans y penser à deux fois : ça
+  exposerait `pin_hash` (hash bcrypt du PIN kiosque) à la clé `anon`.
+- **Temps réel** : pas de `postgres_changes` brut sur `employes` (justement à
+  cause du point RLS ci-dessus) — **Realtime Broadcast from Database**
+  (`realtime.send()` dans un trigger, canal public `employes-changes`,
+  payload minimal `{op, id}` sans donnée sensible). Les deux apps s'abonnent
+  et rappellent `get_employes_rh()` au reçu d'un événement.
 
 ## Logique métier clé (dans `index.html`)
 
@@ -48,11 +95,37 @@ dans `index.html`, `BACKUP_VERSION` à incrémenter si le format change).
 - `getAlerts(emp)` — détecte les non-conformités (ex: taux salarié < minimum
   CCM/SMIC effectif).
 - Onglets de l'app : **Dashboard** (KPIs, graphiques Chart.js), **Équipe**
-  (table salariés, filtres, actions groupées), **Optimisation** (simulateurs :
-  hausse SMIC, heures sup, effectif/ETP, analyse conformité CCM, scénarios
-  comparatifs), **Paramètres** (taux/grille CCM, sauvegarde JSON).
+  (table salariés, filtres, actions groupées + section "Comptes sonotrad-pwa
+  sans fiche RH" pour les salariés créés côté kiosque Pointage sans données
+  RH — bouton "Compléter la fiche" qui verrouille nom/prénom sur la valeur
+  déjà en base), **Optimisation** (simulateurs : hausse SMIC, heures sup,
+  effectif/ETP, analyse conformité CCM, scénarios comparatifs), **Pointage**
+  (kiosque PIN, suivi du jour, rapports — connecté aux tables
+  `pointages`/`heures_journalieres`), **Congés** (solde CP par salarié,
+  historique des absences — voir plus bas), **Paramètres** (taux/grille CCM,
+  sauvegarde JSON).
 - PWA : thème clair/sombre, cartes mobile pour l'équipe (vs table desktop),
   gestion de la safe-area iOS (encoche/barre de statut) en mode standalone.
+
+### Module Congés (onglet Congés)
+
+- `countJoursOuvres(debut, fin)` — décompte lundi-vendredi inclus (convention
+  **jours ouvrés**, pas jours ouvrables — choix explicite de l'utilisateur).
+  Ne déduit **pas** les jours fériés (pas de calendrier géré) — limitation
+  connue, à corriger manuellement si un congé chevauche un férié.
+- `getCpPeriod()` — période de référence légale CP : 1er juin N-1 → 31 mai N.
+- `calcSoldeCP(emp)` — acquisition **25j ouvrés/an** (équivalent légal des
+  30j ouvrables), au prorata du temps de présence depuis `date_entree` dans
+  la période en cours, moins les CP déjà pris sur la période. Limitation
+  connue : n'exclut pas du calcul d'acquisition les longues absences
+  maladie/sans solde (l'acquisition légale réelle peut différer dans ce cas
+  au-delà d'un certain seuil — à ajuster manuellement si besoin).
+- 4 types de congé : `cp` (avec solde/acquisition), `maladie`,
+  `evenement_familial` (avec champ `motif` libre), `sans_solde` — ces 3
+  derniers sont juste **déclarés** (dates + jours), pas de solde à calculer.
+- Pas de demande côté salarié pour l'instant (choix explicite) — saisie
+  RH uniquement dans cet onglet. Un futur portail salarié (Phase 3, pas
+  commencé) pourrait changer ça — voir mémoire `project-supabase-migration`.
 
 ## Déploiement
 
@@ -87,3 +160,11 @@ section HTML concernée directement dans ce fichier (pas de fichiers séparés
   assets cachés, sinon les utilisateurs PWA restent sur une vieille version
   (voir historique de fix "cache PWA").
 - Ne pas committer les fichiers `rh-metal-backup-*.json` (données RH réelles).
+- Ne jamais forcer `.toUpperCase()`/normaliser la casse du nom/prénom à la
+  sauvegarde d'un salarié (voir convention de casse plus haut).
+- Pour toute migration Supabase touchant `employes`, `conges`, ou une future
+  table partagée : l'appliquer via MCP Supabase (`apply_migration`) **et**
+  ajouter le fichier correspondant dans `supabase/migrations/` (traçabilité,
+  pas de rejeu automatique). Vérifier si une modif de schéma affecte aussi
+  sonotrad-pwa (repo séparé, voir mémoire `sonotrad-pwa-gas-deployment` pour
+  les pièges de déploiement de ce côté-là si jamais il faut y toucher).
