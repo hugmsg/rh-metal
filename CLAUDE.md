@@ -20,6 +20,7 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 - `sw.js` — service worker (cache offline) — bumper la version si des assets cachés changent
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
+- `nfc-bridge/` — pont Python (lecteur PC/SC → WebSocket) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
 
@@ -126,6 +127,55 @@ Points essentiels à connaître avant de toucher à ce périmètre :
 - Pas de demande côté salarié pour l'instant (choix explicite) — saisie
   RH uniquement dans cet onglet. Un futur portail salarié (Phase 3, pas
   commencé) pourrait changer ça — voir mémoire `project-supabase-migration`.
+
+### Module Pointage — Badge NFC (kiosque, 2026-07-30)
+
+Le kiosque Pointage (`_ptg*` dans `index.html`) gère désormais deux moyens
+d'identification, en coexistence sur le même écran : le PIN existant, et un
+badge NFC scanné sur un lecteur USB PC/SC (ACR122U) branché à un Raspberry
+Pi dédié.
+
+**Le badge ne gère que ENTREE/SORTIE** (bascule automatique selon le dernier
+pointage du jour) — jamais de pause via badge, décision explicite de Hugo :
+un scan pendant qu'un salarié est déjà en service ne permet pas de
+distinguer sans ambiguïté "je pars en pause" de "je pars définitivement".
+Les pauses restent saisies manuellement par un admin (`admin_add_pointage`,
+onglet Suivi du jour), en plus de la déduction automatique de 20 min déjà en
+place pour tout poste de +6h sans aucune pause pointée.
+
+**Schéma Supabase** (projet partagé `ajewxwxerrjnnervzjwm`) :
+- `sonotrad-pwa/supabase/migrations/20260730100000_pointage_nfc.sql` —
+  `pointer_par_nfc(p_uid)` (authentifie ET enregistre le pointage en un seul
+  appel, auto-détecte ENTREE/SORTIE, anti-doublon 5s), `associer_badge_nfc`/
+  `dissocier_badge_nfc(p_employe_id, p_uid)` (gestion du lien badge ↔
+  salarié, anti-collision d'UID).
+- `RH-Metal/supabase/migrations/20260730000000_get_employes_rh_has_badge.sql`
+  — ajoute `has_badge` (booléen, jamais l'UID) au retour de
+  `get_employes_rh()`.
+
+**Associer un badge** (onglet Équipe) : bouton 📡/📶 par salarié →
+`openBadgeModal(id)` → "Écouter le prochain scan" ouvre une WebSocket
+temporaire vers `settings.nfcBridgeUrl` (Réglages → "Adresse du pont NFC"),
+timeout 30s. Fonctionne depuis **n'importe quel poste du réseau local** —
+pas besoin d'être physiquement devant le Pi (décision Hugo : le pont écoute
+sur `0.0.0.0`, pas seulement en loopback).
+
+**Le pont** (`nfc-bridge/`, voir son `README.md`) est un service Python
+(`pyscard` + `websockets`) qui tourne en systemd sur le Raspberry Pi,
+diffuse `{"uid": "..."}` à tous les navigateurs connectés dès qu'un badge
+est scanné. Déploiement 100% manuel (pas d'accès SSH automatisé depuis
+l'environnement de dev) — le dossier du repo est la copie source/traçabilité,
+pas un mécanisme de déploiement.
+
+**Mode kiosque strict (`?kiosk=1`)** : le Raspberry Pi ne doit **jamais**
+afficher autre chose que l'écran Pointage > Kiosque — aucune donnée RH
+(salariés, congés, paramètres) ne doit être accessible depuis cet appareil
+physique. `KIOSK_MODE` (déclaré en tête du `<script>`) verrouille `showTab()`
+sur `'pointage'` et masque toute la navigation via la classe CSS
+`body.kiosk-mode`. Le Pi doit être configuré en Chromium `--kiosk` pointé
+sur `https://rh-metal.vercel.app/?kiosk=1` — jamais l'URL sans ce paramètre.
+Le PC de Hugo garde l'accès admin complet via l'URL normale (sans
+`?kiosk=1`).
 
 ## Déploiement
 

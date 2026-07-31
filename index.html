@@ -426,6 +426,17 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 @media(max-width:700px){
   .ptg-dash-kpi-grid{grid-template-columns:1fr 1fr}
 }
+/* Mode kiosque (?kiosk=1, Raspberry Pi) : aucune donnée RH visible, écran
+   verrouillé sur Pointage > Kiosque. Voir KIOSK_MODE / showTab() dans le
+   script — le masquage CSS est une protection en plus du verrouillage JS,
+   pas la seule ligne de défense. */
+body.kiosk-mode nav.nav,
+body.kiosk-mode .bottom-nav,
+body.kiosk-mode .header-right > button,
+body.kiosk-mode #alert-badge,
+body.kiosk-mode #ok-badge,
+body.kiosk-mode .ptg-subnav-btn[data-ptgview="admin"],
+body.kiosk-mode .ptg-subnav-btn[data-ptgview="rapport"] { display: none !important; }
 </style>
 </head>
 <body>
@@ -775,6 +786,16 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
     </div>
 
     <div class="settings-section">
+      <div class="settings-title">📡 Pointage — Badge NFC
+        <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px">Adresse du pont sur le Raspberry Pi kiosque — laisser vide si le badge n'est pas encore installé</span>
+      </div>
+      <div class="settings-grid">
+        <div class="fg"><label>Adresse du pont NFC</label>
+          <input type="text" id="s-nfc-bridge" placeholder="ws://192.168.1.x:8765" oninput="saveSettings()"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-title">🏭 Groupes d'emploi — Convention Collective Métallurgie 2024
         <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px">Les taux mini CCM sont à vérifier avec les derniers accords de branche</span>
       </div>
@@ -828,6 +849,11 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
     <div class="ptg-view active" id="view-pointage">
+
+      <!-- Statut lecteur NFC — invisible tant qu'aucun pont n'est configuré (Réglages) -->
+      <div id="ptg-nfc-status" style="display:none;text-align:center;margin-bottom:14px">
+        <span id="ptg-nfc-status-pill" class="badge-alert">📡 Lecteur hors ligne</span>
+      </div>
 
       <!-- Sélecteur de type -->
       <div style="margin-bottom:16px">
@@ -1056,6 +1082,26 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 </div>
 </div>
 
+<!-- ═══════════════ MODAL BADGE NFC ═══════════════ -->
+<div class="overlay" id="badge-modal-overlay">
+<div class="modal">
+  <div class="modal-title"><span>📡</span> Badge NFC — <span id="badge-modal-nom"></span></div>
+  <input type="hidden" id="badge-employe-id">
+
+  <div style="margin-bottom:14px">
+    <span id="badge-status-pill" class="badge-ok">Aucun badge</span>
+  </div>
+
+  <div class="modal-hint" id="badge-listen-zone" style="display:none"></div>
+
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeBadgeModal()">Fermer</button>
+    <button class="btn btn-danger" id="badge-dissocier-btn" style="display:none" onclick="dissocierBadge()">Dissocier le badge</button>
+    <button class="btn btn-primary" id="badge-listen-btn" onclick="_badgeListen()">📡 Écouter le prochain scan</button>
+  </div>
+</div>
+</div>
+
 <!-- Modal : ajouter un pointage de correction -->
 <div id="ptg-add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
   <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
@@ -1101,6 +1147,12 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 
 <!-- ═══════════════ SCRIPT ═══════════════ -->
 <script>
+// Mode kiosque (Raspberry Pi dédié au badge/PIN) : verrouille l'app sur
+// Pointage > Kiosque, masque toute donnée RH. Voir showTab() et le bloc
+// CSS body.kiosk-mode. Jamais actif par défaut — seule l'URL du Pi porte
+// ?kiosk=1, le PC de Hugo garde l'accès admin complet sans ce paramètre.
+const KIOSK_MODE = new URLSearchParams(location.search).get('kiosk') === '1';
+
 // ═══════════════════════════════════════════
 // DATA DEFAULTS
 // ═══════════════════════════════════════════
@@ -1111,6 +1163,7 @@ const DEFAULT_SETTINGS = {
   quotaHSup: 450, // Contingent annuel H.Sup — accord collectif d'entreprise (~8h+/sem)
   maj25: 25,
   maj50: 50,
+  nfcBridgeUrl: '', // ws://<ip-raspberry-pi>:8765 — vide = badge NFC désactivé
 };
 
 // ── CCM Métallurgie IDCC 3248 — Grille SMH 2024 (toujours en vigueur en 2026) ──
@@ -1210,6 +1263,7 @@ function mapSupabaseRowToEmployee(row) {
     heures_sup_semaine: row.heures_sup_semaine ?? 0,
     taux_horaire: row.taux_horaire ?? 0,
     notes: row.notes || '',
+    hasBadge: !!row.has_badge,
   };
 }
 
@@ -1555,6 +1609,7 @@ function saveSettings() {
   settings.quotaHSup = parseFloat(document.getElementById('s-quota-hsup').value) || DEFAULT_SETTINGS.quotaHSup;
   settings.maj25 = parseFloat(document.getElementById('s-maj25').value) || DEFAULT_SETTINGS.maj25;
   settings.maj50 = parseFloat(document.getElementById('s-maj50').value) || DEFAULT_SETTINGS.maj50;
+  settings.nfcBridgeUrl = document.getElementById('s-nfc-bridge').value.trim();
   localStorage.setItem('rh_settings', JSON.stringify(settings));
 }
 function saveCcm() {
@@ -1957,6 +2012,7 @@ function renderTable() {
       <td data-label="Coût total/an" class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
       <td data-label="Actions"><div style="display:flex;gap:4px">
         <button class="btn btn-ghost btn-xs" onclick="openModal('${e.id}')">✏️</button>
+        ${isUuid(e.id) ? `<button class="btn btn-ghost btn-xs" onclick="openBadgeModal('${e.id}')" title="${e.hasBadge?'Badge NFC associé':'Associer un badge NFC'}">${e.hasBadge?'📶':'📡'}</button>` : ''}
         <button class="btn btn-danger btn-xs" onclick="deleteEmp('${e.id}')">🗑️</button>
       </div></td>
     </tr>`;
@@ -2165,6 +2221,7 @@ function renderSettings() {
   document.getElementById('s-quota-hsup').value = settings.quotaHSup;
   document.getElementById('s-maj25').value = settings.maj25;
   document.getElementById('s-maj50').value = settings.maj50;
+  document.getElementById('s-nfc-bridge').value = settings.nfcBridgeUrl || '';
 
   const gColors = getGroupeColors();
   document.getElementById('ccm-settings-grid').innerHTML = Object.entries(ccmClasses).map(([c,info])=>{
@@ -2334,6 +2391,129 @@ function saveEmployee() {
   });
 }
 
+// ═══════════════════════════════════════════
+// BADGE NFC — association salarié <-> UID (pont WebSocket sur le Raspberry Pi)
+// ═══════════════════════════════════════════
+const _badge = { socket: null, timer: null };
+
+function openBadgeModal(id) {
+  const emp = employees.find(e => e.id === id);
+  if (!emp) return;
+  document.getElementById('badge-employe-id').value = id;
+  document.getElementById('badge-modal-nom').textContent = `${emp.prenom} ${emp.nom}`;
+  _badgeZoneMsg('');
+  _badgeRefreshStatus(emp);
+  document.getElementById('badge-modal-overlay').classList.add('open');
+}
+
+function closeBadgeModal() {
+  _badgeStopListening();
+  document.getElementById('badge-modal-overlay').classList.remove('open');
+}
+
+function _badgeZoneMsg(text) {
+  const zone = document.getElementById('badge-listen-zone');
+  zone.textContent = text;
+  zone.style.display = text ? '' : 'none';
+}
+
+function _badgeRefreshStatus(emp) {
+  const pill = document.getElementById('badge-status-pill');
+  const dissocierBtn = document.getElementById('badge-dissocier-btn');
+  if (emp.hasBadge) {
+    pill.textContent = 'Badge associé';
+    pill.className = 'badge-ok';
+    dissocierBtn.style.display = '';
+  } else {
+    pill.textContent = 'Aucun badge';
+    pill.className = 'badge-alert';
+    dissocierBtn.style.display = 'none';
+  }
+}
+
+function _badgeListen() {
+  const url = (settings.nfcBridgeUrl || '').trim();
+  const btn = document.getElementById('badge-listen-btn');
+  if (!url) {
+    _badgeZoneMsg('⚠ Adresse du pont NFC non configurée (onglet Réglages).');
+    return;
+  }
+  _badgeStopListening();
+  btn.disabled = true;
+  _badgeZoneMsg('📡 En écoute… scannez le badge sur le lecteur du Raspberry Pi.');
+  try {
+    _badge.socket = new WebSocket(url);
+  } catch (e) {
+    _badgeZoneMsg('⚠ Adresse du pont invalide.');
+    btn.disabled = false;
+    return;
+  }
+  _badge.socket.onmessage = ev => {
+    let uid;
+    try { uid = JSON.parse(ev.data).uid; } catch (e) { return; }
+    if (!uid) return;
+    _badgeStopListening();
+    associerBadgeConfirm(uid);
+  };
+  _badge.socket.onerror = () => {
+    _badgeZoneMsg('⚠ Pont injoignable — vérifie l\'adresse dans Réglages et que le service tourne sur le Pi.');
+    _badgeStopListening();
+  };
+  _badge.socket.onclose = () => { btn.disabled = false; };
+  _badge.timer = setTimeout(() => {
+    _badgeZoneMsg('⏱ Aucun scan détecté après 30s — réessaie.');
+    _badgeStopListening();
+  }, 30000);
+}
+
+function _badgeStopListening() {
+  if (_badge.timer) { clearTimeout(_badge.timer); _badge.timer = null; }
+  if (_badge.socket) {
+    _badge.socket.onclose = null; // évite un double message après fermeture volontaire
+    if (_badge.socket.readyState === WebSocket.OPEN || _badge.socket.readyState === WebSocket.CONNECTING) {
+      _badge.socket.close();
+    }
+    _badge.socket = null;
+  }
+  const btn = document.getElementById('badge-listen-btn');
+  if (btn) btn.disabled = false;
+}
+
+async function associerBadgeConfirm(uid) {
+  const db = window.SupabaseDB;
+  const id = document.getElementById('badge-employe-id').value;
+  if (!db) { ptgToast('⚠ Supabase non configuré'); return; }
+  const { data, error } = await db.rpc('associer_badge_nfc', { p_employe_id: id, p_uid: uid });
+  if (error || data?.ok === false) {
+    _badgeZoneMsg('⚠ ' + (data?.message || error?.message || 'Association échouée.'));
+    return;
+  }
+  const emp = employees.find(e => e.id === id);
+  if (emp) emp.hasBadge = true;
+  _badgeZoneMsg('✅ Badge associé.');
+  _badgeRefreshStatus(emp || { hasBadge: true });
+  ptgToast('✅ Badge NFC associé');
+  refresh();
+}
+
+async function dissocierBadge() {
+  const db = window.SupabaseDB;
+  const id = document.getElementById('badge-employe-id').value;
+  if (!confirm('Dissocier ce badge du salarié ?')) return;
+  if (!db) { ptgToast('⚠ Supabase non configuré'); return; }
+  const { data, error } = await db.rpc('dissocier_badge_nfc', { p_employe_id: id });
+  if (error || data?.ok === false) {
+    ptgToast('⚠ ' + (data?.message || error?.message || 'Dissociation échouée.'));
+    return;
+  }
+  const emp = employees.find(e => e.id === id);
+  if (emp) emp.hasBadge = false;
+  _badgeRefreshStatus(emp || { hasBadge: false });
+  _badgeZoneMsg('');
+  ptgToast('Badge dissocié');
+  refresh();
+}
+
 function deleteEmp(id) {
   if (!confirm('Supprimer ce salarié ?')) return;
   employees = employees.filter(e=>e.id!==id);
@@ -2371,6 +2551,11 @@ function exportCSV() {
 // NAVIGATION
 // ═══════════════════════════════════════════
 function showTab(id) {
+  // Mode kiosque (?kiosk=1, Raspberry Pi) : verrouillé sur Pointage, aucune
+  // donnée RH ne doit jamais être accessible depuis cet écran. Défense en
+  // profondeur en plus du masquage de la nav (voir applyKioskMode) — bloque
+  // aussi un changement d'onglet forcé depuis la console navigateur.
+  if (KIOSK_MODE && id !== 'pointage') id = 'pointage';
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('[data-tab]').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
@@ -2737,6 +2922,7 @@ function ptgShowSubView(view) {
 
 const _ptg = {
   pin: '', type: 'ENTREE', submitting: false, feedbackTimer: null, realtimeSub: null,
+  nfcSocket: null, nfcReconnectTimer: null,
 };
 
 function ptgInit() {
@@ -2747,6 +2933,7 @@ function ptgInit() {
   ptgSelectType('ENTREE');
   _ptgLoadEnService();
   _ptgSubscribeRealtime();
+  _ptgNfcConnect();
 }
 
 function ptgSelectType(type) {
@@ -2938,6 +3125,72 @@ function _ptgSubscribeRealtime() {
       _ptgLoadEnService();
     })
     .subscribe();
+}
+
+/* ─ Badge NFC (pont WebSocket sur le Raspberry Pi kiosque) ─ */
+// Connexion persistante, indépendante du pavé PIN (coexistence) : un scan de
+// badge n'utilise jamais _ptg.type (le type Entrée/Sortie est auto-détecté
+// côté serveur par pointer_par_nfc, voir migration pointage_nfc). Le kiosque
+// tourne sans surveillance 24/7 → reconnexion automatique avec backoff fixe
+// tant que settings.nfcBridgeUrl reste renseigné.
+function _ptgNfcSetStatus(status) {
+  const wrap = document.getElementById('ptg-nfc-status');
+  const pill = document.getElementById('ptg-nfc-status-pill');
+  if (!wrap || !pill) return;
+  if (status === 'off') { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  if (status === 'connected') {
+    pill.textContent = '📡 Lecteur connecté';
+    pill.className = 'badge-ok';
+  } else {
+    pill.textContent = '📡 Lecteur hors ligne';
+    pill.className = 'badge-alert';
+  }
+}
+
+function _ptgNfcConnect() {
+  clearTimeout(_ptg.nfcReconnectTimer);
+  const url = (settings.nfcBridgeUrl || '').trim();
+  if (!url) {
+    _ptgNfcSetStatus('off');
+    return;
+  }
+  if (_ptg.nfcSocket) {
+    _ptg.nfcSocket.onclose = null; // reconnexion volontaire, pas un incident à re-signaler
+    _ptg.nfcSocket.close();
+  }
+  _ptgNfcSetStatus('disconnected');
+  let socket;
+  try {
+    socket = new WebSocket(url);
+  } catch (e) {
+    _ptg.nfcReconnectTimer = setTimeout(_ptgNfcConnect, 5000);
+    return;
+  }
+  _ptg.nfcSocket = socket;
+  socket.onopen = () => _ptgNfcSetStatus('connected');
+  socket.onmessage = ev => {
+    let uid;
+    try { uid = JSON.parse(ev.data).uid; } catch (e) { return; }
+    if (uid) _ptgNfcOnScan(uid);
+  };
+  socket.onerror = () => _ptgNfcSetStatus('disconnected');
+  socket.onclose = () => {
+    _ptgNfcSetStatus('disconnected');
+    _ptg.nfcReconnectTimer = setTimeout(_ptgNfcConnect, 5000);
+  };
+}
+
+async function _ptgNfcOnScan(uid) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('pointer_par_nfc', { p_uid: uid });
+  if (error || !data?.ok) {
+    _ptgMsg(data?.message || 'Badge non reconnu.', 'var(--danger)');
+    setTimeout(() => _ptgMsg(''), 2000);
+    return;
+  }
+  _ptgShowFeedback(data.nom, data.prenom, data.type);
 }
 
 /* ─ Pointage admin ─ */
@@ -3580,6 +3833,8 @@ refresh();
 renderSettings();
 syncEmployeesFromSupabase({ silent: true });
 subscribeEmployesChanges();
+document.body.classList.toggle('kiosk-mode', KIOSK_MODE);
+if (KIOSK_MODE) showTab('pointage');
 
 // ═══════════════════════════════════════════
 // SERVICE WORKER (PWA)

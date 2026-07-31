@@ -16,4 +16,9 @@ desktop.ini
 # Backup files (ne pas versionner les backups JSON)
 rh-metal-backup-*.json
 
+# Python (nfc-bridge)
+__pycache__/
+*.pyc
+venv/
+
 .vercel

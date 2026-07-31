@@ -1,0 +1,15 @@
+[Unit]
+Description=Pont NFC RH-Metal (lecteur PC/SC vers WebSocket)
+After=network.target pcscd.service
+Requires=pcscd.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/nfc-bridge
+ExecStart=/usr/bin/python3 /home/pi/nfc-bridge/nfc_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
