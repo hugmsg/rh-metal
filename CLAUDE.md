@@ -177,6 +177,59 @@ sur `https://rh-metal.vercel.app/?kiosk=1` — jamais l'URL sans ce paramètre.
 Le PC de Hugo garde l'accès admin complet via l'URL normale (sans
 `?kiosk=1`).
 
+#### ⚠️ BUG CONNU (2026-07-31) — le badge NFC ne fonctionne PAS en prod (HTTPS)
+
+**Statut : diagnostiqué, correctif proposé mais pas encore implémenté** (Hugo a demandé de
+documenter et de ne rien changer pour l'instant — reprendre ce chantier à la prochaine session).
+
+**Symptôme** : testé en conditions réelles le 2026-07-31 — lecteur ACR122U branché sur le PC de
+Hugo (fonctionne très bien, aucun besoin du Raspberry Pi pour développer/tester : PC/SC est
+nativement supporté par Windows, `pyscard` détecte le lecteur sans souci). Le pont
+(`nfc_bridge.py`) tourne, lit bien les badges, diffuse l'UID correctement. **En local
+(`http://localhost:...`), tout le flux marche de bout en bout** (validé avec un vrai badge :
+scan → RPC `pointer_par_nfc` → "en service" affiché). **Mais en prod
+(`https://rh-metal.vercel.app`), la connexion WebSocket kiosque → pont reste bloquée
+indéfiniment en `CONNECTING`**, jamais d'ouverture — reproduit et confirmé via
+`new WebSocket('ws://127.0.0.1:8765')` exécuté directement dans la page prod (4s de timeout,
+`readyState` reste à 0, aucun événement `open`/`error`/`close`).
+
+**Cause** : contenu mixte (*mixed content*). `https://rh-metal.vercel.app` est chargée en HTTPS ;
+le pont écoute en `ws://` (non chiffré). Chrome bloque silencieusement ce type de connexion
+active depuis une page HTTPS — **y compris vers `127.0.0.1`** (l'exemption "loopback = origine de
+confiance" ne s'applique pas ici, contrairement à ce qu'on aurait pu supposer). Ça explique
+pourquoi le test en local (page servie en `http://`, donc pas de contenu mixte) fonctionnait
+parfaitement alors que la même adresse de pont échoue en prod.
+
+**Correctif recommandé (pas encore fait)** : remplacer le serveur WebSocket maison du pont par un
+canal **Supabase Realtime Broadcast** — même mécanisme déjà utilisé pour `employes-changes`
+(voir [[project_shared_employes_table]]). Le pont Python pousserait chaque scan vers un canal
+Supabase (ex. `nfc-badge-scans`) au lieu d'ouvrir son propre serveur ; le kiosque et l'écran
+Équipe s'abonneraient à ce canal via le client `window.SupabaseDB` déjà chargé dans la page.
+Avantages : Supabase est déjà en HTTPS/WSS avec un vrai certificat (aucun souci de contenu mixte,
+comme pour toutes les autres souscriptions realtime déjà en place) ; plus besoin d'exposer un
+port sur le réseau local ni de champ "Adresse du pont NFC" à maintenir (IP qui peut changer) ;
+fonctionnerait même hors du réseau local, sans rien configurer de plus côté Pi.
+
+**Ce que ça implique de changer** (à faire à la prochaine session, si Hugo confirme cette
+direction) :
+- `nfc-bridge/nfc_bridge.py` : remplacer `websockets.serve(...)` par un appel HTTP (ou le SDK
+  `supabase-py`) qui pousse sur le canal Realtime Broadcast à chaque badge détecté — plus besoin
+  de gérer une liste de clients connectés côté pont.
+- `index.html` : `_ptgNfcConnect()`/`_ptgNfcOnScan()` (kiosque) et `_badgeListen()` (modale Équipe)
+  à réécrire pour utiliser `db.channel('nfc-badge-scans').on('broadcast', ...)` au lieu d'un
+  `new WebSocket(settings.nfcBridgeUrl)`.
+- Réglages : le champ "Adresse du pont NFC" (`s-nfc-bridge`/`settings.nfcBridgeUrl`) devient
+  obsolète, à retirer (plus rien à configurer côté adresse — seul le pont doit connaître l'URL/clé
+  Supabase, déjà en dur dans le code comme le reste de l'app).
+- `nfc-bridge/README.md` : mettre à jour les instructions en conséquence.
+- Point de vigilance : garder le même anti-doublon/debounce qu'aujourd'hui côté pont (un badge
+  qui reste posé sur le lecteur ne doit pas spammer le canal).
+
+**Ce qui reste valable et n'a pas besoin d'être retouché** : les 3 RPC Supabase
+(`pointer_par_nfc`, `associer_badge_nfc`, `dissocier_badge_nfc`), le mode `?kiosk=1`, la lecture
+matérielle PC/SC elle-même (`pyscard`, déjà testée et fonctionnelle) — seul le **transport** entre
+le pont et le navigateur doit changer.
+
 ## Déploiement
 
 - GitHub : `hugmsg/rh-metal` (remote `origin`)
