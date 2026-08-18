@@ -206,15 +206,24 @@ sur `https://rh-metal.vercel.app/?kiosk=1` — jamais l'URL sans ce paramètre.
 Le PC de Hugo garde l'accès admin complet via l'URL normale (sans
 `?kiosk=1`).
 
-#### Bug contenu mixte HTTPS/WS — CORRIGÉ le 2026-08-18
+#### Bug contenu mixte HTTPS/WS — CORRIGÉ ET VALIDÉ le 2026-08-18
 
 Voir "Historique" ci-dessus pour le détail du bug (diagnostiqué le 2026-07-31, badge NFC
 inutilisable en prod à cause du contenu mixte HTTPS/WS) et du correctif (bascule vers Supabase
-Realtime Broadcast, `emettre_signal_nfc`). **Code réécrit le 2026-08-18** (migration
+Realtime Broadcast, `emettre_signal_nfc`). Code réécrit le 2026-08-18 (migration
 `20260818000000_pointage_nfc_broadcast.sql`, `nfc-bridge/nfc_bridge.py`,
-`_ptgNfcConnect`/`_badgeListen` dans `index.html`, champ Réglages remplacé par une case à cocher)
-— **retester en conditions réelles (lecteur + prod HTTPS) avant de considérer ce chantier
-terminé**, le correctif n'avait pas encore été validé au moment de la rédaction de cette section.
+`_ptgNfcConnect`/`_badgeListen` dans `index.html`, champ Réglages remplacé par une case à cocher),
+**puis testé en conditions réelles le même jour avec un vrai badge ACR122U** : heartbeat reçu en
+local ET sur `https://rh-metal.vercel.app` (pastille "Lecteur connecté"), scan réel traité de bout
+en bout (ENTREE/SORTIE enregistrées) sur les deux environnements. **Chantier terminé.**
+
+**Bug annexe découvert et corrigé pendant ce test** : avec plusieurs clients abonnés en même
+temps au canal `nfc-badge-scans` (kiosque + écran Équipe "Écouter", ou simplement plusieurs
+onglets ouverts), un seul scan physique déclenchait un appel `pointer_par_nfc` concurrent par
+client — la vérification anti-doublon (5s) n'étant pas atomique, 3 lignes `ENTREE` ont été créées
+pour un seul scan lors du test. Corrigé par un verrou transactionnel par salarié
+(`pg_advisory_xact_lock`, migration `20260818010000_pointage_nfc_lock.sql`) : re-testé avec 2
+onglets simultanément abonnés (local + prod), une seule ligne créée après le correctif.
 
 ## Déploiement
 
