@@ -3,68 +3,74 @@
 
 Détecte l'insertion d'un badge sur le lecteur, lit son UID via la pseudo-APDU
 "Get Data" standard (FF CA 00 00 00, supportée nativement par l'ACR122U), et
-diffuse {"uid": "<hex>"} à tous les navigateurs connectés via WebSocket.
+le signale via la RPC Supabase `emettre_signal_nfc` (Realtime Broadcast,
+canal "nfc-badge-scans") — un simple appel REST en HTTPS, comme n'importe
+quel autre appel Supabase de cette appli.
 
-Le serveur écoute sur toutes les interfaces (pas seulement 127.0.0.1 — voir
-HOST ci-dessous) : un admin peut associer un badge à un salarié depuis
-n'importe quel poste du réseau local SONOTRAD, sans être physiquement devant
-le Raspberry Pi (décision Hugo 2026-07-30, voir CLAUDE.md).
+Historique : la première version de ce pont exposait son propre serveur
+WebSocket sur le réseau local, auquel le navigateur se connectait directement
+en `ws://`. Ça marchait en local (`http://localhost:...`) mais restait bloqué
+en prod (`https://rh-metal.vercel.app`) : une page HTTPS ne peut pas ouvrir de
+WebSocket non chiffrée, même vers 127.0.0.1 (contenu mixte, confirmé le
+2026-07-31). Cette version pousse les événements vers Supabase à la place —
+le navigateur ne parle qu'à Supabase (déjà en WSS avec un vrai certificat),
+jamais directement au pont. Conséquence pratique : plus besoin d'exposer un
+port sur le réseau local, ni de renseigner une adresse IP côté RH-Metal.
 
 Installation et lancement : voir README.md dans ce dossier.
 """
 
-import asyncio
-import json
 import logging
+import threading
+import time
 
+import requests
 from smartcard.CardMonitoring import CardMonitor, CardObserver
 from smartcard.util import toHexString
-import websockets
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("nfc-bridge")
 
-HOST = "0.0.0.0"
-PORT = 8765
+# Mêmes identifiants Supabase que le reste de l'appli (index.html) — projet
+# partagé avec sonotrad-pwa, clé anon publique (RLS/RPC protègent les données,
+# voir sonotrad-pwa/supabase/migrations/20260818000000_pointage_nfc_broadcast.sql).
+SUPABASE_URL = "https://ajewxwxerrjnnervzjwm.supabase.co"
+SUPABASE_ANON_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqZXd4d3hlcnJqbm5lcnZ6andtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MDU5MDEsImV4cCI6MjA5NzA4MTkwMX0.NJcm1_tb4BcCSileiODYP0pKJ1LRVXFTIr2idQBrALg"
+)
+RPC_URL = f"{SUPABASE_URL}/rest/v1/rpc/emettre_signal_nfc"
+HEADERS = {
+    "apikey": SUPABASE_ANON_KEY,
+    "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+    "Content-Type": "application/json",
+}
+
+HEARTBEAT_INTERVAL_S = 15
 
 # Pseudo-APDU "Get UID" — standard PC/SC (pas spécifique ACR122U, mais c'est
 # le lecteur visé ici). Réponse attendue : UID brut + SW 90 00.
 GET_UID_APDU = [0xFF, 0xCA, 0x00, 0x00, 0x00]
 
-connected_clients = set()
-main_loop = None  # rempli au démarrage — sert à repasser du thread pyscard vers la boucle asyncio
 
-
-async def register(websocket):
-    connected_clients.add(websocket)
-    log.info("Client connecté (%d au total)", len(connected_clients))
+def _emettre(event, payload=None):
     try:
-        async for _ in websocket:
-            pass  # ce pont n'attend rien du navigateur, juste une connexion ouverte
-    finally:
-        connected_clients.discard(websocket)
-        log.info("Client déconnecté (%d au total)", len(connected_clients))
-
-
-async def broadcast_uid(uid: str):
-    if not connected_clients:
-        log.info("Badge lu (%s) mais aucun client connecté — ignoré", uid)
-        return
-    message = json.dumps({"uid": uid})
-    results = await asyncio.gather(
-        *(ws.send(message) for ws in connected_clients), return_exceptions=True
-    )
-    for r in results:
-        if isinstance(r, Exception):
-            log.warning("Envoi à un client échoué : %s", r)
-    log.info("UID diffusé à %d client(s) : %s", len(connected_clients), uid)
+        r = requests.post(
+            RPC_URL,
+            headers=HEADERS,
+            json={"p_event": event, "p_payload": payload or {}},
+            timeout=5,
+        )
+        if r.status_code >= 300:
+            log.warning("emettre_signal_nfc(%s) a répondu %s : %s", event, r.status_code, r.text)
+    except requests.RequestException:
+        log.exception("Erreur réseau en envoyant l'événement '%s' à Supabase", event)
 
 
 class BadgeObserver(CardObserver):
-    """Callback pyscard — s'exécute dans le thread de monitoring de pyscard,
-    PAS dans la boucle asyncio : on repasse donc explicitement via
-    run_coroutine_threadsafe plutôt que d'appeler broadcast_uid() directement
-    (qui planterait, appelée hors de la boucle événementielle)."""
+    """Callback pyscard — s'exécute dans le thread de monitoring de pyscard.
+    Pas besoin de bufferiser/relayer vers une autre boucle ici (contrairement
+    à l'ancienne version avec asyncio) : un simple appel HTTP synchrone dans
+    ce thread suffit, un scan de badge est un événement peu fréquent."""
 
     def update(self, observable, actions):
         (added_cards, _removed_cards) = actions
@@ -76,30 +82,39 @@ class BadgeObserver(CardObserver):
                 if sw1 == 0x90 and sw2 == 0x00:
                     uid = toHexString(data).replace(" ", "")
                     log.info("Badge détecté, UID = %s", uid)
-                    if main_loop:
-                        asyncio.run_coroutine_threadsafe(broadcast_uid(uid), main_loop)
+                    _emettre("nfc_scan", {"uid": uid})
                 else:
                     log.warning("Lecture UID échouée (SW=%02X%02X)", sw1, sw2)
             except Exception:
                 log.exception("Erreur lors de la lecture du badge")
 
 
-async def main():
-    global main_loop
-    main_loop = asyncio.get_running_loop()
+def _heartbeat_loop(stop_event: threading.Event):
+    while not stop_event.is_set():
+        _emettre("heartbeat")
+        stop_event.wait(HEARTBEAT_INTERVAL_S)
 
+
+def main():
     monitor = CardMonitor()
     observer = BadgeObserver()
     monitor.addObserver(observer)
     log.info("Surveillance du lecteur PC/SC démarrée")
 
-    async with websockets.serve(register, HOST, PORT):
-        log.info("Pont NFC en écoute sur ws://%s:%d", HOST, PORT)
-        await asyncio.Future()  # tourne indéfiniment
+    stop_event = threading.Event()
+    hb_thread = threading.Thread(target=_heartbeat_loop, args=(stop_event,), daemon=True)
+    hb_thread.start()
+    log.info("Heartbeat démarré (toutes les %ds) — canal nfc-badge-scans", HEARTBEAT_INTERVAL_S)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_event.set()
+        monitor.deleteObserver(observer)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
+    main()

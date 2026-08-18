@@ -787,11 +787,10 @@ body.kiosk-mode .ptg-subnav-btn[data-ptgview="rapport"] { display: none !importa
 
     <div class="settings-section">
       <div class="settings-title">📡 Pointage — Badge NFC
-        <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px">Adresse du pont sur le Raspberry Pi kiosque — laisser vide si le badge n'est pas encore installé</span>
+        <span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px">Diffusion via Supabase (aucune adresse à renseigner) — n'activer que si un lecteur/pont est réellement installé sur le kiosque</span>
       </div>
       <div class="settings-grid">
-        <div class="fg"><label>Adresse du pont NFC</label>
-          <input type="text" id="s-nfc-bridge" placeholder="ws://192.168.1.x:8765" oninput="saveSettings()"></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="s-nfc-enabled" onchange="saveSettings()"> Activer le badge NFC sur le kiosque</label></div>
       </div>
     </div>
 
@@ -1163,7 +1162,7 @@ const DEFAULT_SETTINGS = {
   quotaHSup: 450, // Contingent annuel H.Sup — accord collectif d'entreprise (~8h+/sem)
   maj25: 25,
   maj50: 50,
-  nfcBridgeUrl: '', // ws://<ip-raspberry-pi>:8765 — vide = badge NFC désactivé
+  nfcEnabled: false, // pas d'adresse à configurer (transport Supabase Realtime) — juste on/off
 };
 
 // ── CCM Métallurgie IDCC 3248 — Grille SMH 2024 (toujours en vigueur en 2026) ──
@@ -1609,8 +1608,9 @@ function saveSettings() {
   settings.quotaHSup = parseFloat(document.getElementById('s-quota-hsup').value) || DEFAULT_SETTINGS.quotaHSup;
   settings.maj25 = parseFloat(document.getElementById('s-maj25').value) || DEFAULT_SETTINGS.maj25;
   settings.maj50 = parseFloat(document.getElementById('s-maj50').value) || DEFAULT_SETTINGS.maj50;
-  settings.nfcBridgeUrl = document.getElementById('s-nfc-bridge').value.trim();
+  settings.nfcEnabled = document.getElementById('s-nfc-enabled').checked;
   localStorage.setItem('rh_settings', JSON.stringify(settings));
+  _ptgNfcConnect(); // (re)applique immédiatement le nouvel état, kiosque déjà ouvert ou non
 }
 function saveCcm() {
   Object.keys(ccmClasses).forEach(c => {
@@ -2221,7 +2221,7 @@ function renderSettings() {
   document.getElementById('s-quota-hsup').value = settings.quotaHSup;
   document.getElementById('s-maj25').value = settings.maj25;
   document.getElementById('s-maj50').value = settings.maj50;
-  document.getElementById('s-nfc-bridge').value = settings.nfcBridgeUrl || '';
+  document.getElementById('s-nfc-enabled').checked = !!settings.nfcEnabled;
 
   const gColors = getGroupeColors();
   document.getElementById('ccm-settings-grid').innerHTML = Object.entries(ccmClasses).map(([c,info])=>{
@@ -2392,9 +2392,9 @@ function saveEmployee() {
 }
 
 // ═══════════════════════════════════════════
-// BADGE NFC — association salarié <-> UID (pont WebSocket sur le Raspberry Pi)
+// BADGE NFC — association salarié <-> UID (Supabase Realtime Broadcast)
 // ═══════════════════════════════════════════
-const _badge = { socket: null, timer: null };
+const _badge = { channel: null, timer: null };
 
 function openBadgeModal(id) {
   const emp = employees.find(e => e.id === id);
@@ -2432,34 +2432,28 @@ function _badgeRefreshStatus(emp) {
 }
 
 function _badgeListen() {
-  const url = (settings.nfcBridgeUrl || '').trim();
+  const db = window.SupabaseDB;
   const btn = document.getElementById('badge-listen-btn');
-  if (!url) {
-    _badgeZoneMsg('⚠ Adresse du pont NFC non configurée (onglet Réglages).');
+  if (!db) {
+    _badgeZoneMsg('⚠ Supabase non configuré.');
     return;
   }
   _badgeStopListening();
   btn.disabled = true;
-  _badgeZoneMsg('📡 En écoute… scannez le badge sur le lecteur du Raspberry Pi.');
-  try {
-    _badge.socket = new WebSocket(url);
-  } catch (e) {
-    _badgeZoneMsg('⚠ Adresse du pont invalide.');
-    btn.disabled = false;
-    return;
-  }
-  _badge.socket.onmessage = ev => {
-    let uid;
-    try { uid = JSON.parse(ev.data).uid; } catch (e) { return; }
-    if (!uid) return;
-    _badgeStopListening();
-    associerBadgeConfirm(uid);
-  };
-  _badge.socket.onerror = () => {
-    _badgeZoneMsg('⚠ Pont injoignable — vérifie l\'adresse dans Réglages et que le service tourne sur le Pi.');
-    _badgeStopListening();
-  };
-  _badge.socket.onclose = () => { btn.disabled = false; };
+  _badgeZoneMsg('📡 En écoute… scannez le badge sur le lecteur.');
+  // Même canal que le kiosque (nfc-badge-scans) — un scan pendant une écoute
+  // "Associer un badge" est aussi reçu par le kiosque s'il est ouvert
+  // ailleurs (tentera pointer_par_nfc, échouera silencieusement si le badge
+  // n'est pas encore associé — sans conséquence, comportement déjà accepté
+  // avec l'ancien transport WebSocket qui diffusait à tous les clients).
+  _badge.channel = db
+    .channel('nfc-badge-scans')
+    .on('broadcast', { event: 'nfc_scan' }, ({ payload }) => {
+      if (!payload?.uid) return;
+      _badgeStopListening();
+      associerBadgeConfirm(payload.uid);
+    })
+    .subscribe();
   _badge.timer = setTimeout(() => {
     _badgeZoneMsg('⏱ Aucun scan détecté après 30s — réessaie.');
     _badgeStopListening();
@@ -2468,12 +2462,9 @@ function _badgeListen() {
 
 function _badgeStopListening() {
   if (_badge.timer) { clearTimeout(_badge.timer); _badge.timer = null; }
-  if (_badge.socket) {
-    _badge.socket.onclose = null; // évite un double message après fermeture volontaire
-    if (_badge.socket.readyState === WebSocket.OPEN || _badge.socket.readyState === WebSocket.CONNECTING) {
-      _badge.socket.close();
-    }
-    _badge.socket = null;
+  if (_badge.channel) {
+    window.SupabaseDB?.removeChannel(_badge.channel);
+    _badge.channel = null;
   }
   const btn = document.getElementById('badge-listen-btn');
   if (btn) btn.disabled = false;
@@ -2922,7 +2913,7 @@ function ptgShowSubView(view) {
 
 const _ptg = {
   pin: '', type: 'ENTREE', submitting: false, feedbackTimer: null, realtimeSub: null,
-  nfcSocket: null, nfcReconnectTimer: null,
+  nfcChannel: null, nfcLastHeartbeat: 0, nfcHeartbeatCheck: null,
 };
 
 function ptgInit() {
@@ -3127,12 +3118,18 @@ function _ptgSubscribeRealtime() {
     .subscribe();
 }
 
-/* ─ Badge NFC (pont WebSocket sur le Raspberry Pi kiosque) ─ */
+/* ─ Badge NFC (Supabase Realtime Broadcast, canal nfc-badge-scans) ─ */
+// Transport : le pont Raspberry Pi pousse chaque scan vers Supabase (RPC
+// emettre_signal_nfc) au lieu d'exposer son propre serveur WebSocket — la
+// première version ouvrait une WebSocket ws:// directe, bloquée en prod par
+// le contenu mixte HTTPS (voir CLAUDE.md, "BUG CONNU 2026-07-31", corrigé le
+// 2026-08-18). Le navigateur ne parle qu'à Supabase, déjà en WSS.
 // Connexion persistante, indépendante du pavé PIN (coexistence) : un scan de
 // badge n'utilise jamais _ptg.type (le type Entrée/Sortie est auto-détecté
-// côté serveur par pointer_par_nfc, voir migration pointage_nfc). Le kiosque
-// tourne sans surveillance 24/7 → reconnexion automatique avec backoff fixe
-// tant que settings.nfcBridgeUrl reste renseigné.
+// côté serveur par pointer_par_nfc). "Lecteur connecté" ne veut pas juste
+// dire "abonné au canal Supabase" (toujours vrai dès que Supabase répond) —
+// ça veut dire "le pont a émis un battement de cœur (heartbeat) il y a moins
+// de 30s", seul signal fiable que le pont/lecteur physique est bien en vie.
 function _ptgNfcSetStatus(status) {
   const wrap = document.getElementById('ptg-nfc-status');
   const pill = document.getElementById('ptg-nfc-status-pill');
@@ -3148,37 +3145,36 @@ function _ptgNfcSetStatus(status) {
   }
 }
 
+const NFC_HEARTBEAT_TIMEOUT_MS = 30000;
+
 function _ptgNfcConnect() {
-  clearTimeout(_ptg.nfcReconnectTimer);
-  const url = (settings.nfcBridgeUrl || '').trim();
-  if (!url) {
+  clearInterval(_ptg.nfcHeartbeatCheck);
+  const db = window.SupabaseDB;
+  if (_ptg.nfcChannel) {
+    db?.removeChannel(_ptg.nfcChannel);
+    _ptg.nfcChannel = null;
+  }
+  if (!settings.nfcEnabled || !db) {
     _ptgNfcSetStatus('off');
     return;
   }
-  if (_ptg.nfcSocket) {
-    _ptg.nfcSocket.onclose = null; // reconnexion volontaire, pas un incident à re-signaler
-    _ptg.nfcSocket.close();
-  }
-  _ptgNfcSetStatus('disconnected');
-  let socket;
-  try {
-    socket = new WebSocket(url);
-  } catch (e) {
-    _ptg.nfcReconnectTimer = setTimeout(_ptgNfcConnect, 5000);
-    return;
-  }
-  _ptg.nfcSocket = socket;
-  socket.onopen = () => _ptgNfcSetStatus('connected');
-  socket.onmessage = ev => {
-    let uid;
-    try { uid = JSON.parse(ev.data).uid; } catch (e) { return; }
-    if (uid) _ptgNfcOnScan(uid);
-  };
-  socket.onerror = () => _ptgNfcSetStatus('disconnected');
-  socket.onclose = () => {
-    _ptgNfcSetStatus('disconnected');
-    _ptg.nfcReconnectTimer = setTimeout(_ptgNfcConnect, 5000);
-  };
+  _ptg.nfcLastHeartbeat = 0;
+  _ptgNfcSetStatus('disconnected'); // pas encore de heartbeat reçu à ce stade
+  _ptg.nfcChannel = db
+    .channel('nfc-badge-scans')
+    .on('broadcast', { event: 'nfc_scan' }, ({ payload }) => {
+      if (payload?.uid) _ptgNfcOnScan(payload.uid);
+    })
+    .on('broadcast', { event: 'heartbeat' }, () => {
+      _ptg.nfcLastHeartbeat = Date.now();
+      _ptgNfcSetStatus('connected');
+    })
+    .subscribe();
+  _ptg.nfcHeartbeatCheck = setInterval(() => {
+    if (!_ptg.nfcLastHeartbeat || Date.now() - _ptg.nfcLastHeartbeat > NFC_HEARTBEAT_TIMEOUT_MS) {
+      _ptgNfcSetStatus('disconnected');
+    }
+  }, 5000);
 }
 
 async function _ptgNfcOnScan(uid) {

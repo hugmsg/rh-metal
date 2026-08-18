@@ -20,7 +20,7 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 - `sw.js` — service worker (cache offline) — bumper la version si des assets cachés changent
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
-- `nfc-bridge/` — pont Python (lecteur PC/SC → WebSocket) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
+- `nfc-bridge/` — pont Python (lecteur PC/SC → Supabase Realtime Broadcast) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
 
@@ -149,23 +149,52 @@ place pour tout poste de +6h sans aucune pause pointée.
   appel, auto-détecte ENTREE/SORTIE, anti-doublon 5s), `associer_badge_nfc`/
   `dissocier_badge_nfc(p_employe_id, p_uid)` (gestion du lien badge ↔
   salarié, anti-collision d'UID).
+- `sonotrad-pwa/supabase/migrations/20260818000000_pointage_nfc_broadcast.sql`
+  — `emettre_signal_nfc(p_event, p_payload)` : diffuse un événement Realtime
+  Broadcast sur le canal `nfc-badge-scans` (`nfc_scan` pour un scan,
+  `heartbeat` toutes les 15s). C'est le **transport** entre le pont et les
+  navigateurs — voir "Historique" ci-dessous pour pourquoi ce n'est pas un
+  serveur WebSocket direct.
 - `RH-Metal/supabase/migrations/20260730000000_get_employes_rh_has_badge.sql`
   — ajoute `has_badge` (booléen, jamais l'UID) au retour de
   `get_employes_rh()`.
 
 **Associer un badge** (onglet Équipe) : bouton 📡/📶 par salarié →
-`openBadgeModal(id)` → "Écouter le prochain scan" ouvre une WebSocket
-temporaire vers `settings.nfcBridgeUrl` (Réglages → "Adresse du pont NFC"),
-timeout 30s. Fonctionne depuis **n'importe quel poste du réseau local** —
-pas besoin d'être physiquement devant le Pi (décision Hugo : le pont écoute
-sur `0.0.0.0`, pas seulement en loopback).
+`openBadgeModal(id)` → "Écouter le prochain scan" s'abonne au canal Supabase
+`nfc-badge-scans` (`db.channel('nfc-badge-scans').on('broadcast', ...)`),
+timeout 30s. Fonctionne depuis **n'importe quel poste connecté à internet**
+— pas besoin d'être sur le même réseau que le Pi ni physiquement devant lui
+(aucune adresse à connaître : tout transite par Supabase).
 
 **Le pont** (`nfc-bridge/`, voir son `README.md`) est un service Python
-(`pyscard` + `websockets`) qui tourne en systemd sur le Raspberry Pi,
-diffuse `{"uid": "..."}` à tous les navigateurs connectés dès qu'un badge
-est scanné. Déploiement 100% manuel (pas d'accès SSH automatisé depuis
+(`pyscard` + `requests`) qui tourne en systemd sur le Raspberry Pi. Il ne
+sert plus rien sur le réseau (pas de port ouvert) : à chaque badge scanné,
+il appelle simplement la RPC `emettre_signal_nfc` en HTTPS (`p_event:
+'nfc_scan', p_payload: {uid}`), comme n'importe quel autre appel Supabase de
+l'appli. Il envoie aussi un `heartbeat` toutes les 15s (même RPC, `p_event:
+'heartbeat'`) pour que le kiosque sache si le pont/lecteur est réellement en
+vie (pastille "Lecteur connecté"/"Lecteur hors ligne", basée sur la
+fraîcheur du dernier heartbeat reçu — pas juste sur l'abonnement au canal,
+qui lui reste actif tant que Supabase répond, pont éteint ou non). Réglages
+→ case à cocher "Activer le badge NFC sur le kiosque" (`settings.nfcEnabled`,
+un simple booléen local au navigateur — plus d'adresse à saisir).
+Déploiement du pont 100% manuel (pas d'accès SSH automatisé depuis
 l'environnement de dev) — le dossier du repo est la copie source/traçabilité,
 pas un mécanisme de déploiement.
+
+**Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
+direct** : la toute première version (2026-07-30) exposait son propre
+serveur WebSocket sur le réseau local (`ws://<ip-du-pi>:8765`), auquel le
+navigateur se connectait directement. Ça fonctionnait en local
+(`http://localhost:...`) mais restait bloqué indéfiniment en prod
+(`https://rh-metal.vercel.app`) : une page HTTPS ne peut pas ouvrir de
+WebSocket non chiffrée, même vers `127.0.0.1` (contenu mixte — confirmé le
+2026-07-31 par un test direct : `new WebSocket('ws://127.0.0.1:8765')`
+exécuté dans la console de la page prod restait en `CONNECTING` sans jamais
+s'ouvrir). Corrigé le 2026-08-18 en repassant par Supabase (déjà en
+HTTPS/WSS avec un vrai certificat, même mécanisme que `employes-changes`,
+voir [[project_shared_employes_table]]) — le navigateur ne parle plus
+jamais directement au pont.
 
 **Mode kiosque strict (`?kiosk=1`)** : le Raspberry Pi ne doit **jamais**
 afficher autre chose que l'écran Pointage > Kiosque — aucune donnée RH
@@ -177,58 +206,15 @@ sur `https://rh-metal.vercel.app/?kiosk=1` — jamais l'URL sans ce paramètre.
 Le PC de Hugo garde l'accès admin complet via l'URL normale (sans
 `?kiosk=1`).
 
-#### ⚠️ BUG CONNU (2026-07-31) — le badge NFC ne fonctionne PAS en prod (HTTPS)
+#### Bug contenu mixte HTTPS/WS — CORRIGÉ le 2026-08-18
 
-**Statut : diagnostiqué, correctif proposé mais pas encore implémenté** (Hugo a demandé de
-documenter et de ne rien changer pour l'instant — reprendre ce chantier à la prochaine session).
-
-**Symptôme** : testé en conditions réelles le 2026-07-31 — lecteur ACR122U branché sur le PC de
-Hugo (fonctionne très bien, aucun besoin du Raspberry Pi pour développer/tester : PC/SC est
-nativement supporté par Windows, `pyscard` détecte le lecteur sans souci). Le pont
-(`nfc_bridge.py`) tourne, lit bien les badges, diffuse l'UID correctement. **En local
-(`http://localhost:...`), tout le flux marche de bout en bout** (validé avec un vrai badge :
-scan → RPC `pointer_par_nfc` → "en service" affiché). **Mais en prod
-(`https://rh-metal.vercel.app`), la connexion WebSocket kiosque → pont reste bloquée
-indéfiniment en `CONNECTING`**, jamais d'ouverture — reproduit et confirmé via
-`new WebSocket('ws://127.0.0.1:8765')` exécuté directement dans la page prod (4s de timeout,
-`readyState` reste à 0, aucun événement `open`/`error`/`close`).
-
-**Cause** : contenu mixte (*mixed content*). `https://rh-metal.vercel.app` est chargée en HTTPS ;
-le pont écoute en `ws://` (non chiffré). Chrome bloque silencieusement ce type de connexion
-active depuis une page HTTPS — **y compris vers `127.0.0.1`** (l'exemption "loopback = origine de
-confiance" ne s'applique pas ici, contrairement à ce qu'on aurait pu supposer). Ça explique
-pourquoi le test en local (page servie en `http://`, donc pas de contenu mixte) fonctionnait
-parfaitement alors que la même adresse de pont échoue en prod.
-
-**Correctif recommandé (pas encore fait)** : remplacer le serveur WebSocket maison du pont par un
-canal **Supabase Realtime Broadcast** — même mécanisme déjà utilisé pour `employes-changes`
-(voir [[project_shared_employes_table]]). Le pont Python pousserait chaque scan vers un canal
-Supabase (ex. `nfc-badge-scans`) au lieu d'ouvrir son propre serveur ; le kiosque et l'écran
-Équipe s'abonneraient à ce canal via le client `window.SupabaseDB` déjà chargé dans la page.
-Avantages : Supabase est déjà en HTTPS/WSS avec un vrai certificat (aucun souci de contenu mixte,
-comme pour toutes les autres souscriptions realtime déjà en place) ; plus besoin d'exposer un
-port sur le réseau local ni de champ "Adresse du pont NFC" à maintenir (IP qui peut changer) ;
-fonctionnerait même hors du réseau local, sans rien configurer de plus côté Pi.
-
-**Ce que ça implique de changer** (à faire à la prochaine session, si Hugo confirme cette
-direction) :
-- `nfc-bridge/nfc_bridge.py` : remplacer `websockets.serve(...)` par un appel HTTP (ou le SDK
-  `supabase-py`) qui pousse sur le canal Realtime Broadcast à chaque badge détecté — plus besoin
-  de gérer une liste de clients connectés côté pont.
-- `index.html` : `_ptgNfcConnect()`/`_ptgNfcOnScan()` (kiosque) et `_badgeListen()` (modale Équipe)
-  à réécrire pour utiliser `db.channel('nfc-badge-scans').on('broadcast', ...)` au lieu d'un
-  `new WebSocket(settings.nfcBridgeUrl)`.
-- Réglages : le champ "Adresse du pont NFC" (`s-nfc-bridge`/`settings.nfcBridgeUrl`) devient
-  obsolète, à retirer (plus rien à configurer côté adresse — seul le pont doit connaître l'URL/clé
-  Supabase, déjà en dur dans le code comme le reste de l'app).
-- `nfc-bridge/README.md` : mettre à jour les instructions en conséquence.
-- Point de vigilance : garder le même anti-doublon/debounce qu'aujourd'hui côté pont (un badge
-  qui reste posé sur le lecteur ne doit pas spammer le canal).
-
-**Ce qui reste valable et n'a pas besoin d'être retouché** : les 3 RPC Supabase
-(`pointer_par_nfc`, `associer_badge_nfc`, `dissocier_badge_nfc`), le mode `?kiosk=1`, la lecture
-matérielle PC/SC elle-même (`pyscard`, déjà testée et fonctionnelle) — seul le **transport** entre
-le pont et le navigateur doit changer.
+Voir "Historique" ci-dessus pour le détail du bug (diagnostiqué le 2026-07-31, badge NFC
+inutilisable en prod à cause du contenu mixte HTTPS/WS) et du correctif (bascule vers Supabase
+Realtime Broadcast, `emettre_signal_nfc`). **Code réécrit le 2026-08-18** (migration
+`20260818000000_pointage_nfc_broadcast.sql`, `nfc-bridge/nfc_bridge.py`,
+`_ptgNfcConnect`/`_badgeListen` dans `index.html`, champ Réglages remplacé par une case à cocher)
+— **retester en conditions réelles (lecteur + prod HTTPS) avant de considérer ce chantier
+terminé**, le correctif n'avait pas encore été validé au moment de la rédaction de cette section.
 
 ## Déploiement
 
