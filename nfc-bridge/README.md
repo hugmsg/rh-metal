@@ -1,4 +1,4 @@
-# Pont NFC — Raspberry Pi kiosque RH-Metal
+# Pont NFC — Raspberry Pi kiosque RH-Metal (+ PC de secours)
 
 Petit service Python qui fait le lien entre le lecteur USB PC/SC (ACR122U)
 branché au Raspberry Pi et la PWA RH-Metal, qui elle ne peut pas parler
@@ -20,6 +20,13 @@ repo pour le détail du diagnostic.
 Ce dossier est la copie source, versionnée dans le repo pour traçabilité.
 **Le déploiement sur le Raspberry Pi reste manuel** — pas d'accès SSH
 automatisé depuis l'environnement de développement.
+
+**Le pont n'a rien de spécifique au Raspberry Pi** — c'est juste un
+programme Python qui a besoin du lecteur branché en USB et d'un accès
+internet. Il tourne aussi tel quel sur Windows (PC/SC est nativement
+supporté, pas besoin de `pcscd`/`libccid`) : voir la section "PC de
+secours" plus bas si le Pi tombe en panne un jour — pas besoin de moi
+(Claude Code) pour le relancer ailleurs.
 
 ## 1. Prérequis système (Raspberry Pi OS)
 
@@ -99,6 +106,62 @@ Depuis RH-Metal (n'importe quel poste, connecté à internet — pas besoin
 d'être sur le même réseau que le Pi ni d'avoir coché "Activer le badge NFC")
 → onglet Équipe → bouton 📡 sur la ligne du salarié → "Écouter le prochain
 scan" → poser le badge sur le lecteur du Pi dans les 30 secondes.
+
+## PC de secours (Windows, si le Raspberry Pi est en panne)
+
+Pas besoin de Claude Code, ni d'installer Python : un exécutable Windows
+autonome (`nfc_bridge.exe`) est déjà généré dans `nfc-bridge/dist/` — ce
+dossier fait partie de `RH-Metal`, donc il se synchronise automatiquement
+sur Google Drive partout où ce Drive est monté (`G:\Mon Drive\Pro
+SONOTRAD\RH\RH-Metal\nfc-bridge\dist\nfc_bridge.exe`).
+
+### Utilisation ponctuelle (dépannage rapide)
+
+1. Brancher le lecteur ACR122U en USB sur le PC.
+2. Ouvrir le dossier `nfc-bridge\dist` (via Google Drive) et double-cliquer
+   sur `nfc_bridge.exe`.
+3. Une fenêtre noire (console) s'ouvre et affiche l'état en clair :
+   - `✅ Lecteur détecté : ...` puis `✅ Connecté à Supabase` puis
+     `🟢 Prêt` → tout fonctionne, **laisser cette fenêtre ouverte**.
+   - `❌ Aucun lecteur NFC détecté` → le programme réessaie tout seul
+     toutes les 3 secondes et affiche des pistes de dépannage directement
+     dans la fenêtre (rebrancher le lecteur, patienter si c'est la
+     première fois sur ce PC — Windows installe parfois un pilote
+     automatiquement). Pas besoin d'aller chercher un fichier de log.
+   - `❌ Impossible de contacter Supabase` → ce PC n'a pas accès à
+     internet (vérifier le Wi-Fi/câble réseau).
+4. Fermer la fenêtre = arrête le pont (normal, pas une erreur).
+5. Dans RH-Metal → Réglages → cocher "Activer le badge NFC sur le kiosque"
+   si ce n'est pas déjà fait sur le navigateur utilisé.
+
+### Rendre ce PC "toujours prêt" (démarrage automatique)
+
+Si un PC est désigné comme secours permanent (allumé en continu, lecteur
+toujours branché), autant que le pont démarre seul sans que personne n'ait
+à double-cliquer quoi que ce soit :
+
+1. `Win + R` → taper `shell:startup` → Entrée (ouvre le dossier Démarrage
+   de Windows).
+2. Faire un raccourci de `nfc_bridge.exe` (clic droit sur le fichier →
+   Envoyer vers → Bureau, ou clic droit → Créer un raccourci) et déposer ce
+   raccourci dans le dossier Démarrage ouvert à l'étape 1.
+3. Redémarrer le PC pour vérifier : la fenêtre du pont doit s'ouvrir seule
+   à la connexion, sans action.
+
+À partir de là : PC allumé + lecteur branché = badge NFC opérationnel,
+aucun clic nécessaire.
+
+### Régénérer l'exécutable (si `dist/nfc_bridge.exe` a été supprimé/modifié)
+
+Depuis un PC qui a Python installé (pas nécessaire sur le PC de secours
+final, seulement pour fabriquer le fichier) :
+
+```powershell
+pip install pyinstaller pyscard requests
+cd nfc-bridge
+python -m PyInstaller --onefile --console --name nfc_bridge nfc_bridge.py
+# → génère dist/nfc_bridge.exe
+```
 
 ## Dépannage
 

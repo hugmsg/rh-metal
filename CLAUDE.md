@@ -182,6 +182,19 @@ Déploiement du pont 100% manuel (pas d'accès SSH automatisé depuis
 l'environnement de dev) — le dossier du repo est la copie source/traçabilité,
 pas un mécanisme de déploiement.
 
+**PC de secours (2026-08-18)** : le pont n'a rien de spécifique au
+Raspberry Pi (PC/SC nativement supporté par Windows). Un exécutable Windows
+autonome (`nfc-bridge/dist/nfc_bridge.exe`, généré via PyInstaller, pas
+committé dans git — voir `.gitignore` — mais synchronisé via Google Drive
+comme tout le dossier `RH-Metal`) permet de faire tourner le pont sur
+n'importe quel PC Windows sans installer Python : double-clic, console
+avec messages explicites (détection lecteur en boucle avec pistes de
+dépannage, vérification Supabase). Voir `nfc-bridge/README.md` section "PC
+de secours" pour l'utilisation ponctuelle et le démarrage automatique
+(raccourci dans `shell:startup`). Régénérer l'exe : `pip install
+pyinstaller pyscard requests && python -m PyInstaller --onefile --console
+--name nfc_bridge nfc_bridge.py`.
+
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
 serveur WebSocket sur le réseau local (`ws://<ip-du-pi>:8765`), auquel le

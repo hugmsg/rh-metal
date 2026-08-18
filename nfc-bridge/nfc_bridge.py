@@ -21,15 +21,32 @@ Installation et lancement : voir README.md dans ce dossier.
 """
 
 import logging
+import sys
 import threading
 import time
 
+# Certaines consoles Windows (codepage cp1252/cp850, notamment quand la
+# sortie est redirigée vers un fichier) plantent sur les emoji/caractères ═.
+# errors='replace' : au pire un caractère bizarre s'affiche, jamais un crash.
+# line_buffering=True : sans ça, les print() peuvent rester coincés dans un
+# tampon invisible tant que le programme tourne (surtout si la sortie n'est
+# pas un vrai terminal — un exe empaqueté peut se comporter ainsi) — la
+# personne devant l'écran ne verrait alors jamais les messages de statut.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
 import requests
 from smartcard.CardMonitoring import CardMonitor, CardObserver
+from smartcard.System import readers
 from smartcard.util import toHexString
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("nfc-bridge")
+
+READER_CHECK_INTERVAL_S = 3
 
 # Mêmes identifiants Supabase que le reste de l'appli (index.html) — projet
 # partagé avec sonotrad-pwa, clé anon publique (RLS/RPC protègent les données,
@@ -95,7 +112,65 @@ def _heartbeat_loop(stop_event: threading.Event):
         stop_event.wait(HEARTBEAT_INTERVAL_S)
 
 
+def _attendre_lecteur():
+    """Boucle bloquante avec messages explicites tant qu'aucun lecteur PC/SC
+    n'est vu par le système — pensé pour quelqu'un qui lance ce programme sans
+    connaître Python : pas un plantage silencieux, un message clair à chaque
+    tentative, avec des pistes concrètes."""
+    tentative = 0
+    while True:
+        try:
+            r = readers()
+        except Exception:
+            r = []
+        if r:
+            print(f"✅ Lecteur détecté : {r[0]}")
+            return
+        tentative += 1
+        if tentative == 1:
+            print("❌ Aucun lecteur NFC détecté.")
+            print("   Vérifie que :")
+            print("   1. Le lecteur (ACR122U) est bien branché sur un port USB.")
+            print("   2. S'il vient d'être branché, patiente une minute — Windows installe")
+            print("      parfois un pilote automatiquement la première fois.")
+            print("   3. Essaie de le débrancher puis rebrancher.")
+            print("   Nouvelle tentative toutes les 3 secondes (laisse cette fenêtre ouverte)...")
+        elif tentative % 10 == 0:
+            print(f"   ... toujours aucun lecteur détecté après {tentative * READER_CHECK_INTERVAL_S}s.")
+        time.sleep(READER_CHECK_INTERVAL_S)
+
+
+def _verifier_supabase():
+    """Un aller-retour heartbeat au démarrage pour confirmer que ce PC a bien
+    accès à internet/Supabase — plutôt que de laisser l'utilisateur deviner
+    pourquoi le kiosque n'affiche jamais 'Lecteur connecté'."""
+    try:
+        r = requests.post(
+            RPC_URL,
+            headers=HEADERS,
+            json={"p_event": "heartbeat", "p_payload": {}},
+            timeout=8,
+        )
+        if r.status_code < 300:
+            print("✅ Connecté à Supabase (internet OK).")
+            return True
+        print(f"❌ Supabase a répondu une erreur ({r.status_code}) — signale ce message.")
+        return False
+    except requests.RequestException as e:
+        print("❌ Impossible de contacter Supabase — vérifie que ce PC a accès à internet.")
+        print(f"   Détail technique : {e}")
+        return False
+
+
 def main():
+    print("═" * 60)
+    print("  PONT NFC — RH SONOTRAD")
+    print("  Laisse cette fenêtre ouverte tant que le badge doit fonctionner.")
+    print("═" * 60)
+
+    _attendre_lecteur()
+    _verifier_supabase()
+
     monitor = CardMonitor()
     observer = BadgeObserver()
     monitor.addObserver(observer)
@@ -105,6 +180,7 @@ def main():
     hb_thread = threading.Thread(target=_heartbeat_loop, args=(stop_event,), daemon=True)
     hb_thread.start()
     log.info("Heartbeat démarré (toutes les %ds) — canal nfc-badge-scans", HEARTBEAT_INTERVAL_S)
+    print("🟢 Prêt — en attente de badges (le kiosque doit afficher 'Lecteur connecté' sous 30s).")
 
     try:
         while True:

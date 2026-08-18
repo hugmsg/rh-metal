@@ -21,4 +21,10 @@ __pycache__/
 *.pyc
 venv/
 
+# Build de l'exécutable nfc-bridge (PyInstaller) — binaire lourd, régénéré à
+# la demande (pip install pyinstaller && pyinstaller --onefile nfc_bridge.py),
+# pas versionné. Distribué via la synchronisation Google Drive de ce dossier.
+nfc-bridge/build/
+nfc-bridge/dist/
+
 .vercel
