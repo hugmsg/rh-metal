@@ -1179,6 +1179,28 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
   </div>
 </div>
 
+<div id="ptg-conge-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
+  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:16px;font-weight:700;margin:0">Déclarer un congé</h3>
+      <button class="btn btn-ghost btn-sm" onclick="ptgCongeModalHide()">✕</button>
+    </div>
+    <div id="ptg-conge-label" style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:600"></div>
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Type</label>
+    <select id="ptg-conge-type" onchange="ptgCongeTypeChange()" class="filter-sel" style="width:100%;margin-bottom:14px">
+      <option value="cp">Congés payés</option>
+      <option value="maladie">Maladie</option>
+      <option value="evenement_familial">Événement familial</option>
+      <option value="sans_solde">Sans solde</option>
+    </select>
+    <div id="ptg-conge-motif-wrap" style="display:none">
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Motif</label>
+      <input type="text" id="ptg-conge-motif" placeholder="ex : mariage, décès…" class="filter-sel" style="width:100%;margin-bottom:14px">
+    </div>
+    <button onclick="ptgCongeConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
+  </div>
+</div>
+
 <!-- Feedback visuel plein écran (3 s) -->
 <div id="ptg-feedback" class="ptg-feedback-overlay">
   <div id="ptg-feedback-icon" style="font-size:72px;margin-bottom:20px;line-height:1">✅</div>
@@ -1617,8 +1639,11 @@ async function deleteConge(id) {
   if (!confirm('Supprimer cette absence ?')) return;
   const db = window.SupabaseDB;
   if (!db) return;
-  const { error } = await db.rpc('supprimer_conge_rh', { p_id: id });
-  if (error) { alert('Erreur : ' + error.message); return; }
+  const { data, error } = await db.rpc('supprimer_conge_rh', { p_id: id });
+  if (error || data?.ok === false) {
+    alert('Erreur : ' + (data?.message || error?.message || 'inconnue'));
+    return;
+  }
   renderConges();
 }
 
@@ -4014,6 +4039,53 @@ function ptgCorrectionModalHide() {
   if (modal) modal.style.display = 'none';
 }
 
+let _ptgConge = { employeId: null, date: null };
+
+function ptgCongeModalShow(btn) {
+  _ptgConge.employeId = btn.dataset.emp;
+  _ptgConge.date      = btn.dataset.date;
+  const label = document.getElementById('ptg-conge-label');
+  if (label) label.textContent = `${btn.dataset.label} — ${_ptgFmtDate(btn.dataset.date)}`;
+  document.getElementById('ptg-conge-type').value = 'cp';
+  document.getElementById('ptg-conge-motif').value = '';
+  ptgCongeTypeChange();
+  document.getElementById('ptg-conge-modal').style.display = 'flex';
+}
+
+function ptgCongeModalHide() {
+  const modal = document.getElementById('ptg-conge-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function ptgCongeTypeChange() {
+  const type = document.getElementById('ptg-conge-type')?.value;
+  const wrap = document.getElementById('ptg-conge-motif-wrap');
+  if (wrap) wrap.style.display = type === 'evenement_familial' ? '' : 'none';
+}
+
+async function ptgCongeConfirm() {
+  const type  = document.getElementById('ptg-conge-type')?.value;
+  const motif = document.getElementById('ptg-conge-motif')?.value?.trim() || null;
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('upsert_conge_rh', {
+    p_id: null,
+    p_employe_id: _ptgConge.employeId,
+    p_type: type,
+    p_date_debut: _ptgConge.date,
+    p_date_fin: _ptgConge.date,
+    p_jours: 1,
+    p_motif: motif,
+    p_notes: null,
+  });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return;
+  }
+  ptgCongeModalHide();
+  ptgToast('✓ Congé déclaré');
+  _ptgRefreshCurrentView();
+}
+
 async function ptgCorrectionConfirm() {
   const heures      = parseFloat(document.getElementById('ptg-correction-heures')?.value);
   const commentaire = document.getElementById('ptg-correction-commentaire')?.value?.trim();
@@ -4398,7 +4470,8 @@ function _ptgControleDayCard(d, emp, locked) {
     const actions = locked ? '' : `
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
         <button onclick="ptgJourStatutSet('${emp.id}','${d.date}','ferie')" class="btn btn-ghost btn-xs">🏖 Férié</button>
-        <button onclick="ptgJourStatutSet('${emp.id}','${d.date}','non_travaille')" class="btn btn-ghost btn-xs">✓ Non travaillé</button>
+        <button data-emp="${emp.id}" data-date="${d.date}" data-label="${emp.prenom} ${emp.nom.toUpperCase()}"
+          onclick="ptgCongeModalShow(this)" class="btn btn-ghost btn-xs">🗓 Congé</button>
         <button data-emp="${emp.id}" data-date="${d.date}" data-label="${emp.prenom} ${emp.nom.toUpperCase()}"
           onclick="ptgCorrectionModalShow(this)" class="btn btn-ghost btn-xs">✎ Corriger</button>
       </div>`;
