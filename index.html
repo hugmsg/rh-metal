@@ -437,7 +437,6 @@ body.kiosk-mode #alert-badge,
 body.kiosk-mode #ok-badge,
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="admin"],
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="rapport"],
-body.kiosk-mode .ptg-subnav-btn[data-ptgview="recup"],
 body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
 </style>
 </head>
@@ -846,7 +845,6 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       <button class="ptg-subnav-btn active" data-ptgview="kiosk"  onclick="ptgShowSubView('kiosk')">📟 Kiosque</button>
       <button class="ptg-subnav-btn"        data-ptgview="admin"  onclick="ptgShowSubView('admin')">📋 Suivi du jour</button>
       <button class="ptg-subnav-btn"        data-ptgview="rapport" onclick="ptgShowSubView('rapport')">📊 Rapports</button>
-      <button class="ptg-subnav-btn"        data-ptgview="recup"   onclick="ptgShowSubView('recup')">⏱ Récup</button>
     </div>
 
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
@@ -986,23 +984,6 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       </div>
 
       <div id="ptg-rpt-content">
-        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
-      </div>
-    </div>
-
-    <!-- ── VUE : RÉCUP (solde d'heures informel) ───────────────────────── -->
-    <div class="ptg-view" id="view-ptg-recup">
-
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
-        Suivi interne, sans valeur légale automatique — n'affecte ni la paie ni le calcul des heures sup.
-        Le solde auto (semaine) compare les heures pointées au contrat ; ajoute une ligne manuelle pour corriger un cas particulier (semaine avec congés, etc.).
-      </div>
-
-      <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
-        <button onclick="ptgRecupModalShow()" class="btn btn-primary btn-sm">＋ Ajouter un mouvement</button>
-      </div>
-
-      <div id="ptg-recup-content">
         <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
       </div>
     </div>
@@ -1174,21 +1155,18 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
   </div>
 </div>
 
-<div id="ptg-recup-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
+<div id="ptg-correction-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
   <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <h3 style="font-size:16px;font-weight:700;margin:0">Ajouter un mouvement (récup)</h3>
-      <button class="btn btn-ghost btn-sm" onclick="ptgRecupModalHide()">✕</button>
+      <h3 style="font-size:16px;font-weight:700;margin:0">Correction d'heures</h3>
+      <button class="btn btn-ghost btn-sm" onclick="ptgCorrectionModalHide()">✕</button>
     </div>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Salarié</label>
-    <select id="ptg-recup-emp" class="filter-sel" style="width:100%;margin-bottom:14px">
-      <option value="">Sélectionner…</option>
-    </select>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Heures (+ si fait en plus, − si à récupérer)</label>
-    <input type="number" id="ptg-recup-heures" step="0.25" placeholder="ex : 2 ou -3.5" class="filter-sel" style="width:100%;margin-bottom:14px">
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Commentaire</label>
-    <input type="text" id="ptg-recup-commentaire" placeholder="Pourquoi ce mouvement ?" class="filter-sel" style="width:100%;margin-bottom:18px">
-    <button onclick="ptgRecupConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
+    <div id="ptg-correction-label" style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:600"></div>
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Heures (+ ajoute du temps, − en retire)</label>
+    <input type="number" id="ptg-correction-heures" step="0.25" placeholder="ex : 0.5 ou -1" class="filter-sel" style="width:100%;margin-bottom:14px">
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Commentaire (visible sur le relevé signé)</label>
+    <input type="text" id="ptg-correction-commentaire" placeholder="ex : oubli de badge le matin" class="filter-sel" style="width:100%;margin-bottom:18px">
+    <button onclick="ptgCorrectionConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
   </div>
 </div>
 
@@ -2962,12 +2940,10 @@ function ptgShowSubView(view) {
   document.getElementById('view-pointage').classList.toggle('active', view === 'kiosk');
   document.getElementById('view-ptg-admin').classList.toggle('active', view === 'admin');
   document.getElementById('view-ptg-rapport').classList.toggle('active', view === 'rapport');
-  document.getElementById('view-ptg-recup').classList.toggle('active', view === 'recup');
   document.querySelectorAll('.ptg-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.ptgview === view));
   if (view === 'kiosk')   ptgInit();
   if (view === 'admin')   ptgAdminInit();
   if (view === 'rapport') ptgRapportInit();
-  if (view === 'recup')   ptgRecupInit();
 }
 
 /* ─ Kiosque PIN ─ */
@@ -3674,7 +3650,11 @@ async function _ptgRapportLoad() {
   let qBadges = db.from('pointages_rapport_vue').select('*').gte('date', start).lte('date', end).order('horodatage');
   if (emp) qBadges = qBadges.eq('employe_id', emp);
 
-  const [{ data, error }, { data: badgesData, error: badgesErr }] = await Promise.all([q, qBadges]);
+  let qCorr = db.from('heures_corrections').select('*').gte('date', start).lte('date', end).order('created_at');
+  if (emp) qCorr = qCorr.eq('employe_id', emp);
+
+  const [{ data, error }, { data: badgesData, error: badgesErr }, { data: corrData, error: corrErr }] =
+    await Promise.all([q, qBadges, qCorr]);
   if (error) {
     content.innerHTML = `<div style="color:var(--danger);padding:16px;font-size:13px">Erreur : ${error.message}</div>`;
     return;
@@ -3685,7 +3665,22 @@ async function _ptgRapportLoad() {
     if (!badgesByKey.has(key)) badgesByKey.set(key, []);
     badgesByKey.get(key).push(p);
   });
-  const rows = (data || []).map(r => ({ ...r, badges: badgesByKey.get(`${r.employe_id}|${r.date}`) || [] }));
+  const corrByKey = new Map();
+  (corrErr ? [] : (corrData || [])).forEach(c => {
+    const key = `${c.employe_id}|${c.date}`;
+    if (!corrByKey.has(key)) corrByKey.set(key, []);
+    corrByKey.get(key).push(c);
+  });
+  const rows = (data || []).map(r => {
+    const key         = `${r.employe_id}|${r.date}`;
+    const corrections = corrByKey.get(key) || [];
+    return {
+      ...r,
+      badges: badgesByKey.get(key) || [],
+      corrections,
+      correctionMin: corrections.reduce((s, c) => s + c.delta_min, 0),
+    };
+  });
   _ptgRapport.data = rows;
   _ptgRapportRender(rows);
 }
@@ -3778,15 +3773,18 @@ function _ptgRapportRender(data) {
   groups.forEach(({ nom, prenom, rows }) => {
     let tot = 0;
     const tbody = rows.map((r, i) => {
-      const nm = _ptgItvMin(r.duree_nette);
+      const nm = _ptgItvMin(r.duree_nette) + (r.correctionMin || 0);
       tot += nm;
       const legal = r.pause_legale_appliquee ? ' <span title="Conv. transport -20min" style="color:var(--warn);font-size:9px;vertical-align:middle">⚖</span>' : '';
+      const nmTxt = _ptgHMAdj(nm);
+      const corrigerBtn = `<button data-emp="${r.employe_id}" data-date="${r.date}" data-label="${prenom} ${nom.toUpperCase()}"
+        onclick="ptgCorrectionModalShow(this)" class="btn btn-ghost btn-xs" style="margin-top:2px">✎ Corriger</button>`;
       return `<tr style="background:${i%2?'var(--surface2)':'var(--surface)'};border-bottom:1px solid var(--border)">
         <td style="padding:7px 10px;font-weight:600">${_ptgFmtDate(r.date)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_entree)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_sortie)}</td>
-        <td style="padding:7px 10px;text-align:left;color:var(--text);font-size:11px;line-height:1.7">${_ptgFmtBadges(r.badges)}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:700">${_ptgHM(nm)}${legal}</td>
+        <td style="padding:7px 10px;text-align:left;color:var(--text);font-size:11px;line-height:1.7">${_ptgFmtBadges(r.badges)}${_ptgFmtCorrections(r.corrections)}${corrigerBtn}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:700">${nmTxt}${legal}</td>
         <td style="padding:7px 10px;text-align:center">${statutBadge(r.statut)}</td>
       </tr>`;
     }).join('');
@@ -3808,7 +3806,7 @@ function _ptgRapportRender(data) {
         <tbody>${tbody}</tbody>
         <tfoot><tr style="background:rgba(124,108,248,.08);border-top:2px solid var(--accent)">
           <td colspan="4" style="padding:8px 12px;font-weight:700;color:var(--accent);font-size:12px">Total ${prenom} ${nom.toUpperCase()}</td>
-          <td style="padding:8px 12px;text-align:right;font-size:14px;font-weight:800;color:var(--accent)">${_ptgHM(tot)}</td>
+          <td style="padding:8px 12px;text-align:right;font-size:14px;font-weight:800;color:var(--accent)">${_ptgHMAdj(tot)}</td>
           <td></td>
         </tr></tfoot>
       </table>
@@ -3817,7 +3815,7 @@ function _ptgRapportRender(data) {
   });
   if (groups.size > 1) {
     html += `<div style="background:var(--surface3);padding:10px 16px;border-radius:10px;text-align:right;font-size:15px;font-weight:800">
-      Total général : ${_ptgHM(grandTotal)}
+      Total général : ${_ptgHMAdj(grandTotal)}
     </div>`;
   }
   content.innerHTML = html;
@@ -3882,14 +3880,16 @@ async function ptgRapportExport() {
     y += 7;
     let tot = 0;
     rows.forEach((r, i) => {
-      const nm = _ptgItvMin(r.duree_nette);
+      const nm = _ptgItvMin(r.duree_nette) + (r.correctionMin || 0);
       tot += nm;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      let badgesLines = [];
-      _ptgFmtBadgesPdf(r.badges).forEach(line => { badgesLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
-      if (!badgesLines.length) badgesLines = ['—'];
-      const rowH = Math.max(6.5, badgesLines.length * 3.2 + 3.3);
+      let badgeLines = [];
+      _ptgFmtBadgesPdf(r.badges).forEach(line => { badgeLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+      let corrLines = [];
+      _ptgFmtCorrectionsPdf(r.corrections).forEach(line => { corrLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+      if (!badgeLines.length && !corrLines.length) badgeLines = ['—'];
+      const rowH = Math.max(6.5, (badgeLines.length + corrLines.length) * 3.2 + 3.3);
       if (y + rowH > 270) { doc.addPage(); y = 18; }
       doc.setFillColor(i % 2 ? 248 : 255, i % 2 ? 250 : 255, i % 2 ? 252 : 255);
       doc.rect(ml, y, cw, rowH, 'F');
@@ -3902,8 +3902,8 @@ async function ptgRapportExport() {
         _ptgFmtDate(r.date),
         _ptgFmtTime(r.heure_entree),
         _ptgFmtTime(r.heure_sortie),
-        null, // badgeages — rendu à part (multi-lignes, police plus petite)
-        _ptgHM(nm) + (r.pause_legale_appliquee ? ' *' : ''), // même souci d'encodage que "->" ci-dessus, pas d'emoji dans le PDF
+        null, // badgeages/corrections — rendu à part (multi-lignes, police plus petite)
+        _ptgHMAdj(nm) + (r.pause_legale_appliquee ? ' *' : ''), // "->"/"*" et non "→"/"⚖" : hors WinAnsi, jsPDF les rend en glyphe cassé
         { SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[r.statut] || r.statut,
       ];
       cx = ml;
@@ -3917,8 +3917,12 @@ async function ptgRapportExport() {
       });
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
+      const badgesX = ml + cols[0] + cols[1] + cols[2] + 2;
+      let ly = y + 4;
       doc.setTextColor(71, 85, 105);
-      doc.text(badgesLines, ml + cols[0] + cols[1] + cols[2] + 2, y + 4, { align: 'left' });
+      badgeLines.forEach(line => { doc.text(line, badgesX, ly, { align: 'left' }); ly += 3.2; });
+      doc.setTextColor(180, 120, 20);
+      corrLines.forEach(line => { doc.text(line, badgesX, ly, { align: 'left' }); ly += 3.2; });
       y += rowH;
     });
     doc.setFillColor(239, 246, 255);
@@ -3929,7 +3933,7 @@ async function ptgRapportExport() {
     doc.setFontSize(9);
     doc.setTextColor(37, 99, 235);
     doc.text(`Total ${prenom} ${nom.toUpperCase()}`, ml + 4, y + 4.8);
-    doc.text(_ptgHM(tot), ml + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] - 2, y + 4.8, { align: 'right' });
+    doc.text(_ptgHMAdj(tot), ml + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] - 2, y + 4.8, { align: 'right' });
     y += 5;
     if (rows.some(r => r.pause_legale_appliquee)) {
       doc.setFont('helvetica', 'italic');
@@ -3961,140 +3965,81 @@ async function ptgRapportExport() {
   doc.save(filename);
 }
 
-/* ─── Pointage — Récup (solde d'heures informel) ──────────────────────── */
+/* ─── Pointage — Corrections d'heures (sur le rapport, admin) ─────────── */
 
 function _ptgHMSigned(min) {
   if (!min) return '0h00';
   return (min < 0 ? '-' : '+') + _ptgHM(Math.abs(min));
 }
 
-async function ptgRecupInit() {
-  const db = window.SupabaseDB;
-  if (db) {
-    const { data } = await db.from('employes_actifs_vue').select('id, nom, prenom');
-    const sel = document.getElementById('ptg-recup-emp');
-    if (sel && data) {
-      sel.innerHTML = '<option value="">Sélectionner…</option>' +
-        data.map(e => `<option value="${e.id}">${e.prenom} ${e.nom.toUpperCase()}</option>`).join('');
-    }
-  }
-  await _ptgRecupLoad();
+// Comme _ptgHM, mais gère le cas (rare) d'une durée nette négative après
+// correction admin — sans le "+" de _ptgHMSigned pour le cas positif normal.
+function _ptgHMAdj(min) {
+  return min < 0 ? '-' + _ptgHM(-min) : _ptgHM(min);
 }
 
-async function _ptgRecupLoad() {
-  const db      = window.SupabaseDB;
-  const content = document.getElementById('ptg-recup-content');
-  if (!db || !content) return;
-  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
-  const { data, error } = await db.from('heures_recup_vue').select('*').order('nom').order('prenom');
-  if (error) {
-    content.innerHTML = `<div style="color:var(--danger);padding:16px;font-size:13px">Erreur : ${error.message}</div>`;
-    return;
-  }
-  _ptgRecupRender(data || []);
+let _ptgCorrection = { employeId: null, date: null };
+
+function ptgCorrectionModalShow(btn) {
+  _ptgCorrection.employeId = btn.dataset.emp;
+  _ptgCorrection.date      = btn.dataset.date;
+  const label = document.getElementById('ptg-correction-label');
+  if (label) label.textContent = `${btn.dataset.label} — ${_ptgFmtDate(btn.dataset.date)}`;
+  document.getElementById('ptg-correction-heures').value = '';
+  document.getElementById('ptg-correction-commentaire').value = '';
+  document.getElementById('ptg-correction-modal').style.display = 'flex';
 }
 
-function _ptgRecupRender(data) {
-  const content = document.getElementById('ptg-recup-content');
-  if (!content) return;
-  if (!data.length) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Aucun mouvement enregistré</div>';
-    return;
-  }
-  const groups = new Map();
-  data.forEach(r => {
-    if (!groups.has(r.employe_id)) groups.set(r.employe_id, { nom: r.nom, prenom: r.prenom, rows: [] });
-    groups.get(r.employe_id).rows.push(r);
-  });
-  // Le solde le plus déséquilibré (positif ou négatif) en premier — plus utile à l'œil
-  const sorted = [...groups.entries()].sort((a, b) => {
-    const soldeA = a[1].rows.reduce((s, r) => s + r.delta_min, 0);
-    const soldeB = b[1].rows.reduce((s, r) => s + r.delta_min, 0);
-    return Math.abs(soldeB) - Math.abs(soldeA);
-  });
-  let html = '';
-  sorted.forEach(([, { nom, prenom, rows }]) => {
-    const solde = rows.reduce((s, r) => s + r.delta_min, 0);
-    const soldeColor = solde > 0 ? '#10b981' : solde < 0 ? '#ef4444' : 'var(--muted)';
-    const rowsSorted = [...rows].sort((a, b) =>
-      new Date(b.semaine_debut) - new Date(a.semaine_debut) || new Date(b.created_at) - new Date(a.created_at));
-    const tbody = rowsSorted.map(r => {
-      const origine = r.type === 'auto'
-        ? '<span style="background:var(--surface2);color:var(--muted);padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">Auto</span>'
-        : '<span style="background:rgba(124,108,248,.15);color:var(--accent);padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">Manuel</span>';
-      const del = r.type === 'manuel'
-        ? `<button onclick="ptgRecupDelete('${r.id}')" class="btn btn-ghost btn-xs" title="Supprimer">✕</button>` : '';
-      const deltaColor = r.delta_min > 0 ? '#10b981' : r.delta_min < 0 ? '#ef4444' : 'var(--muted)';
-      return `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 10px">semaine du ${_ptgFmtDate(r.semaine_debut)}</td>
-        <td style="padding:6px 10px;text-align:center">${origine}</td>
-        <td style="padding:6px 10px;text-align:right;font-weight:700;color:${deltaColor}">${_ptgHMSigned(r.delta_min)}</td>
-        <td style="padding:6px 10px;color:var(--muted)">${r.commentaire || '—'}</td>
-        <td style="padding:6px 10px;text-align:right">${del}</td>
-      </tr>`;
-    }).join('');
-    html += `<div style="margin-bottom:16px;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.2)">
-      <div style="background:var(--surface3);padding:9px 14px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:14px;font-weight:700">${prenom} ${nom.toUpperCase()}</span>
-        <span style="font-size:15px;font-weight:800;color:${soldeColor}">${_ptgHMSigned(solde)}</span>
-      </div>
-      <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
-          <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:600">Semaine</th>
-          <th style="padding:6px 10px;text-align:center;color:var(--muted);font-weight:600">Origine</th>
-          <th style="padding:6px 10px;text-align:right;color:var(--muted);font-weight:600">Écart</th>
-          <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:600">Commentaire</th>
-          <th style="padding:6px 10px"></th>
-        </tr></thead>
-        <tbody>${tbody}</tbody>
-      </table>
-      </div>
-    </div>`;
-  });
-  content.innerHTML = html;
-}
-
-function ptgRecupModalShow() {
-  const modal = document.getElementById('ptg-recup-modal');
-  if (!modal) return;
-  document.getElementById('ptg-recup-emp').value = '';
-  document.getElementById('ptg-recup-heures').value = '';
-  document.getElementById('ptg-recup-commentaire').value = '';
-  modal.style.display = 'flex';
-}
-
-function ptgRecupModalHide() {
-  const modal = document.getElementById('ptg-recup-modal');
+function ptgCorrectionModalHide() {
+  const modal = document.getElementById('ptg-correction-modal');
   if (modal) modal.style.display = 'none';
 }
 
-async function ptgRecupConfirm() {
-  const empId       = document.getElementById('ptg-recup-emp')?.value;
-  const heures      = parseFloat(document.getElementById('ptg-recup-heures')?.value);
-  const commentaire = document.getElementById('ptg-recup-commentaire')?.value?.trim();
-  if (!empId) { ptgToast('Sélectionnez un salarié'); return; }
+async function ptgCorrectionConfirm() {
+  const heures      = parseFloat(document.getElementById('ptg-correction-heures')?.value);
+  const commentaire = document.getElementById('ptg-correction-commentaire')?.value?.trim();
   if (!heures || isNaN(heures)) { ptgToast('Indiquez un nombre d\'heures (positif ou négatif)'); return; }
-  if (!commentaire) { ptgToast('Un commentaire est requis (pourquoi ce mouvement ?)'); return; }
+  if (!commentaire) { ptgToast('Un commentaire est requis (il apparaîtra sur le relevé signé)'); return; }
   const db = window.SupabaseDB;
   if (!db) return;
-  const { data, error } = await db.rpc('ajouter_mouvement_recup',
-    { p_employe_id: empId, p_delta_min: Math.round(heures * 60), p_commentaire: commentaire });
+  const { data, error } = await db.rpc('ajouter_correction_heures', {
+    p_employe_id: _ptgCorrection.employeId,
+    p_date: _ptgCorrection.date,
+    p_delta_min: Math.round(heures * 60),
+    p_commentaire: commentaire,
+  });
   if (error || data?.ok === false) {
     ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return;
   }
-  ptgRecupModalHide();
-  ptgToast('✓ Mouvement ajouté');
-  _ptgRecupLoad();
+  ptgCorrectionModalHide();
+  ptgToast('✓ Correction ajoutée');
+  _ptgRapportLoad();
 }
 
-async function ptgRecupDelete(id) {
+async function ptgCorrectionDelete(id) {
   const db = window.SupabaseDB;
   if (!db) return;
-  const { error } = await db.rpc('supprimer_mouvement_recup', { p_id: id });
+  const { error } = await db.rpc('supprimer_correction_heures', { p_id: id });
   if (error) { ptgToast('Erreur : ' + error.message); return; }
-  ptgToast('✓ Mouvement supprimé');
-  _ptgRecupLoad();
+  ptgToast('✓ Correction supprimée');
+  _ptgRapportLoad();
+}
+
+function _ptgFmtCorrections(list) {
+  if (!list || !list.length) return '';
+  return list.map(c => {
+    const color = c.delta_min > 0 ? '#10b981' : '#ef4444';
+    return `<div style="white-space:nowrap;color:${color};font-weight:600">
+      ✎ ${_ptgHMSigned(c.delta_min)} <span style="color:var(--muted);font-weight:400">— ${c.commentaire}</span>
+      <button onclick="ptgCorrectionDelete('${c.id}')" class="btn btn-ghost btn-xs" title="Supprimer" style="padding:0 4px">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// Variante texte, une ligne par correction — pour l'export PDF
+function _ptgFmtCorrectionsPdf(list) {
+  if (!list || !list.length) return [];
+  return list.map(c => `Correction admin ${_ptgHMSigned(c.delta_min)} - ${c.commentaire}`);
 }
 
 // ═══════════════════════════════════════════
