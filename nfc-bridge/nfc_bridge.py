@@ -68,6 +68,28 @@ HEARTBEAT_INTERVAL_S = 15
 # le lecteur visé ici). Réponse attendue : UID brut + SW 90 00.
 GET_UID_APDU = [0xFF, 0xCA, 0x00, 0x00, 0x00]
 
+# Mot-clés pour distinguer le vrai lecteur NFC (ACR122U/ACS) des lecteurs
+# virtuels que Windows peut exposer sur le même bus PC/SC — ex. "Windows
+# Hello for Business" (carte à puce virtuelle liée au TPM, sans rapport avec
+# le badge). Repéré le 2026-08-18 : sans ce filtre, readers() renvoyait ce
+# lecteur virtuel même l'ACR122U débranché, et le pont continuait donc à
+# signaler "lecteur présent" à tort (heartbeat jamais coupé, kiosque resté
+# sur "Lecteur connecté" malgré le débranchement réel).
+READER_NAME_KEYWORDS = ("acr", "acs")
+
+
+def _lecteur_nfc():
+    """Renvoie le lecteur NFC réel (nom contenant un des READER_NAME_KEYWORDS)
+    s'il est câblé et vu par le système, sinon None — ignore tout autre
+    lecteur PC/SC que Windows pourrait exposer par ailleurs."""
+    try:
+        for r in readers():
+            if any(k in str(r).lower() for k in READER_NAME_KEYWORDS):
+                return r
+    except Exception:
+        pass
+    return None
+
 
 def _emettre(event, payload=None):
     try:
@@ -107,8 +129,19 @@ class BadgeObserver(CardObserver):
 
 
 def _heartbeat_loop(stop_event: threading.Event):
+    """Le heartbeat ne doit pas juste dire 'le programme tourne et a internet'
+    — il doit dire 'le lecteur physique répond toujours à cet instant'. Sans
+    revérifier readers() à chaque tour, débrancher le lecteur en cours de
+    route n'aurait jamais fait passer le kiosque à 'hors ligne' (repéré par
+    Hugo le 2026-08-18 : pastille restée verte lecteur débranché)."""
+    lecteur_signale_absent = False
     while not stop_event.is_set():
-        _emettre("heartbeat")
+        if _lecteur_nfc() is not None:
+            _emettre("heartbeat")
+            lecteur_signale_absent = False
+        elif not lecteur_signale_absent:
+            log.warning("Lecteur non détecté — heartbeat suspendu (le kiosque va afficher 'hors ligne').")
+            lecteur_signale_absent = True
         stop_event.wait(HEARTBEAT_INTERVAL_S)
 
 
@@ -119,12 +152,9 @@ def _attendre_lecteur():
     tentative, avec des pistes concrètes."""
     tentative = 0
     while True:
-        try:
-            r = readers()
-        except Exception:
-            r = []
-        if r:
-            print(f"✅ Lecteur détecté : {r[0]}")
+        r = _lecteur_nfc()
+        if r is not None:
+            print(f"✅ Lecteur détecté : {r}")
             return
         tentative += 1
         if tentative == 1:
