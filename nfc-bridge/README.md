@@ -109,6 +109,10 @@ scan" → poser le badge sur le lecteur du Pi dans les 30 secondes.
 
 ## PC de secours (Windows, si le Raspberry Pi est en panne)
 
+**Procédure simple, en cas d'urgence, pour un collègue non technique :**
+voir [`PROCEDURE_URGENCE.md`](PROCEDURE_URGENCE.md). Ce qui suit est la
+version détaillée/technique du même scénario.
+
 Pas besoin de Claude Code, ni d'installer Python : un exécutable Windows
 autonome (`nfc_bridge.exe`) est déjà généré dans `nfc-bridge/dist/` — ce
 dossier fait partie de `RH-Metal`, donc il se synchronise automatiquement

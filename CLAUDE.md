@@ -193,7 +193,9 @@ dépannage, vérification Supabase). Voir `nfc-bridge/README.md` section "PC
 de secours" pour l'utilisation ponctuelle et le démarrage automatique
 (raccourci dans `shell:startup`). Régénérer l'exe : `pip install
 pyinstaller pyscard requests && python -m PyInstaller --onefile --console
---name nfc_bridge nfc_bridge.py`.
+--name nfc_bridge nfc_bridge.py`. Procédure en langage simple pour un
+collègue non technique en cas de panne du Pi (Hugo absent) :
+`nfc-bridge/PROCEDURE_URGENCE.md`.
 
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
