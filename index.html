@@ -3627,16 +3627,41 @@ async function _ptgRapportLoad() {
   const lbl = document.getElementById('ptg-rpt-label');
   if (lbl) lbl.textContent = label;
   content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
-  let q = db.from('heures_rapport_vue').select('*').gte('date', start).lte('date', end).order('nom').order('date');
   const emp = document.getElementById('ptg-rpt-employe')?.value;
+
+  let q = db.from('heures_rapport_vue').select('*').gte('date', start).lte('date', end).order('nom').order('date');
   if (emp) q = q.eq('employe_id', emp);
-  const { data, error } = await q;
+
+  let qBadges = db.from('pointages_rapport_vue').select('*').gte('date', start).lte('date', end).order('horodatage');
+  if (emp) qBadges = qBadges.eq('employe_id', emp);
+
+  const [{ data, error }, { data: badgesData, error: badgesErr }] = await Promise.all([q, qBadges]);
   if (error) {
     content.innerHTML = `<div style="color:var(--danger);padding:16px;font-size:13px">Erreur : ${error.message}</div>`;
     return;
   }
-  _ptgRapport.data = data || [];
-  _ptgRapportRender(data || []);
+  const badgesByKey = new Map();
+  (badgesErr ? [] : (badgesData || [])).forEach(p => {
+    const key = `${p.employe_id}|${p.date}`;
+    if (!badgesByKey.has(key)) badgesByKey.set(key, []);
+    badgesByKey.get(key).push(p);
+  });
+  const rows = (data || []).map(r => ({ ...r, badges: badgesByKey.get(`${r.employe_id}|${r.date}`) || [] }));
+  _ptgRapport.data = rows;
+  _ptgRapportRender(rows);
+}
+
+function _ptgFmtBadges(list) {
+  if (!list || !list.length) return '—';
+  const icon = { ENTREE: '🟢', SORTIE: '🔴', PAUSE_DEBUT: '⏸', PAUSE_FIN: '▶' };
+  return list.map(p => `${icon[p.type] || '•'}${_ptgFmtTime(p.horodatage)}`).join(' ');
+}
+
+// Variante sans emoji — les polices standard de jsPDF ne les rendent pas
+function _ptgFmtBadgesPdf(list) {
+  if (!list || !list.length) return '—';
+  const label = { ENTREE: 'E', SORTIE: 'S', PAUSE_DEBUT: 'P.déb', PAUSE_FIN: 'P.fin' };
+  return list.map(p => `${label[p.type] || p.type} ${_ptgFmtTime(p.horodatage)}`).join('  ·  ');
 }
 
 function _ptgItvMin(iv) {
@@ -3688,8 +3713,8 @@ function _ptgRapportRender(data) {
         <td style="padding:7px 10px;font-weight:600">${_ptgFmtDate(r.date)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_entree)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_sortie)}</td>
-        <td style="padding:7px 10px;text-align:center;color:var(--muted)">${_ptgHM(_ptgItvMin(r.duree_pause))}${legal}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:700">${_ptgHM(nm)}</td>
+        <td style="padding:7px 10px;text-align:left;color:var(--muted);white-space:nowrap">${_ptgFmtBadges(r.badges)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:700">${_ptgHM(nm)}${legal}</td>
         <td style="padding:7px 10px;text-align:center">${statutBadge(r.statut)}</td>
       </tr>`;
     }).join('');
@@ -3698,12 +3723,13 @@ function _ptgRapportRender(data) {
       <div style="background:var(--surface3);padding:9px 14px;font-size:14px;font-weight:700">
         ${prenom} ${nom.toUpperCase()}
       </div>
+      <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
           <th style="padding:7px 10px;text-align:left;color:var(--muted);font-weight:600">Date</th>
           <th style="padding:7px 10px;text-align:center;color:var(--muted);font-weight:600">Arrivée</th>
           <th style="padding:7px 10px;text-align:center;color:var(--muted);font-weight:600">Départ</th>
-          <th style="padding:7px 10px;text-align:center;color:var(--muted);font-weight:600">Pauses</th>
+          <th style="padding:7px 10px;text-align:left;color:var(--muted);font-weight:600">Badgeages</th>
           <th style="padding:7px 10px;text-align:right;color:var(--muted);font-weight:600">Durée nette</th>
           <th style="padding:7px 10px;text-align:center;color:var(--muted);font-weight:600">Statut</th>
         </tr></thead>
@@ -3714,6 +3740,7 @@ function _ptgRapportRender(data) {
           <td></td>
         </tr></tfoot>
       </table>
+      </div>
     </div>`;
   });
   if (groups.size > 1) {
@@ -3731,7 +3758,7 @@ async function ptgRapportExport() {
   if (!jsPDF) { ptgToast('jsPDF non disponible'); return; }
   const doc  = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   const W    = 210, ml = 14, mr = 14, cw = W - ml - mr;
-  const cols = [50, 22, 22, 22, 26, 0];
+  const cols = [28, 20, 20, 60, 24, 0];
   cols[5] = cw - cols.slice(0, 5).reduce((a, b) => a + b, 0);
   const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const groups = new Map();
@@ -3765,7 +3792,7 @@ async function ptgRapportExport() {
     doc.setTextColor(255, 255, 255);
     doc.text(`${prenom} ${nom.toUpperCase()}`, ml + 4, y + 6.2);
     y += 13;
-    const hdrLabels = ['Date', 'Arrivée', 'Départ', 'Pauses', 'Durée nette', 'Statut'];
+    const hdrLabels = ['Date', 'Arrivée', 'Départ', 'Badgeages', 'Durée nette', 'Statut'];
     doc.setFillColor(248, 250, 252);
     doc.rect(ml, y, cw, 7, 'F');
     doc.setDrawColor(226, 232, 240);
@@ -3775,7 +3802,7 @@ async function ptgRapportExport() {
     doc.setTextColor(100, 116, 139);
     let cx = ml;
     hdrLabels.forEach((h, i) => {
-      const align = i === 0 ? 'left' : i === 4 ? 'right' : 'center';
+      const align = i === 0 || i === 3 ? 'left' : i === 4 ? 'right' : 'center';
       const tx = align === 'right' ? cx + cols[i] - 2 : align === 'left' ? cx + 2 : cx + cols[i] / 2;
       doc.text(h, tx, y + 4.8, { align });
       cx += cols[i];
@@ -3785,11 +3812,15 @@ async function ptgRapportExport() {
     rows.forEach((r, i) => {
       const nm = _ptgItvMin(r.duree_nette);
       tot += nm;
-      if (y > 255) { doc.addPage(); y = 18; }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      const badgesLines = doc.splitTextToSize(_ptgFmtBadgesPdf(r.badges), cols[3] - 4);
+      const rowH = Math.max(6.5, badgesLines.length * 3.2 + 3.3);
+      if (y + rowH > 270) { doc.addPage(); y = 18; }
       doc.setFillColor(i % 2 ? 248 : 255, i % 2 ? 250 : 255, i % 2 ? 252 : 255);
-      doc.rect(ml, y, cw, 6.5, 'F');
+      doc.rect(ml, y, cw, rowH, 'F');
       doc.setDrawColor(241, 245, 249);
-      doc.line(ml, y + 6.5, ml + cw, y + 6.5);
+      doc.line(ml, y + rowH, ml + cw, y + rowH);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(30, 41, 59);
@@ -3797,19 +3828,24 @@ async function ptgRapportExport() {
         _ptgFmtDate(r.date),
         _ptgFmtTime(r.heure_entree),
         _ptgFmtTime(r.heure_sortie),
-        _ptgHM(_ptgItvMin(r.duree_pause)) + (r.pause_legale_appliquee ? ' ⚖' : ''),
-        _ptgHM(nm),
+        null, // badgeages — rendu à part (multi-lignes, police plus petite)
+        _ptgHM(nm) + (r.pause_legale_appliquee ? ' ⚖' : ''),
         { SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[r.statut] || r.statut,
       ];
       cx = ml;
       vals.forEach((v, j) => {
+        if (j === 3) { cx += cols[j]; return; }
         if (j > 0) doc.setFont('helvetica', 'normal');
         const align = j === 0 ? 'left' : j === 4 ? 'right' : 'center';
         const tx = align === 'right' ? cx + cols[j] - 2 : align === 'left' ? cx + 2 : cx + cols[j] / 2;
         doc.text(String(v), tx, y + 4.3, { align });
         cx += cols[j];
       });
-      y += 6.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text(badgesLines, ml + cols[0] + cols[1] + cols[2] + 2, y + 4, { align: 'left' });
+      y += rowH;
     });
     doc.setFillColor(239, 246, 255);
     doc.rect(ml, y, cw, 7, 'F');
