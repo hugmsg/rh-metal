@@ -437,6 +437,7 @@ body.kiosk-mode #alert-badge,
 body.kiosk-mode #ok-badge,
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="admin"],
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="rapport"],
+body.kiosk-mode .ptg-subnav-btn[data-ptgview="controle"],
 body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
 </style>
 </head>
@@ -845,6 +846,7 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       <button class="ptg-subnav-btn active" data-ptgview="kiosk"  onclick="ptgShowSubView('kiosk')">📟 Kiosque</button>
       <button class="ptg-subnav-btn"        data-ptgview="admin"  onclick="ptgShowSubView('admin')">📋 Suivi du jour</button>
       <button class="ptg-subnav-btn"        data-ptgview="rapport" onclick="ptgShowSubView('rapport')">📊 Rapports</button>
+      <button class="ptg-subnav-btn"        data-ptgview="controle" onclick="ptgShowSubView('controle')">✅ Contrôle</button>
     </div>
 
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
@@ -984,6 +986,13 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       </div>
 
       <div id="ptg-rpt-content">
+        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
+      </div>
+    </div>
+
+    <!-- ── VUE : CONTRÔLE HEBDOMADAIRE (revue + verrouillage) ──────────── -->
+    <div class="ptg-view" id="view-ptg-controle">
+      <div id="ptg-controle-content">
         <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
       </div>
     </div>
@@ -2940,10 +2949,12 @@ function ptgShowSubView(view) {
   document.getElementById('view-pointage').classList.toggle('active', view === 'kiosk');
   document.getElementById('view-ptg-admin').classList.toggle('active', view === 'admin');
   document.getElementById('view-ptg-rapport').classList.toggle('active', view === 'rapport');
+  document.getElementById('view-ptg-controle').classList.toggle('active', view === 'controle');
   document.querySelectorAll('.ptg-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.ptgview === view));
-  if (view === 'kiosk')   ptgInit();
-  if (view === 'admin')   ptgAdminInit();
-  if (view === 'rapport') ptgRapportInit();
+  if (view === 'kiosk')    ptgInit();
+  if (view === 'admin')    ptgAdminInit();
+  if (view === 'rapport')  ptgRapportInit();
+  if (view === 'controle') ptgControleInit();
 }
 
 /* ─ Kiosque PIN ─ */
@@ -4013,16 +4024,25 @@ async function ptgCorrectionConfirm() {
   }
   ptgCorrectionModalHide();
   ptgToast('✓ Correction ajoutée');
-  _ptgRapportLoad();
+  _ptgRefreshCurrentView();
 }
 
 async function ptgCorrectionDelete(id) {
   const db = window.SupabaseDB;
   if (!db) return;
-  const { error } = await db.rpc('supprimer_correction_heures', { p_id: id });
-  if (error) { ptgToast('Erreur : ' + error.message); return; }
+  const { data, error } = await db.rpc('supprimer_correction_heures', { p_id: id });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return;
+  }
   ptgToast('✓ Correction supprimée');
-  _ptgRapportLoad();
+  _ptgRefreshCurrentView();
+}
+
+// Recharge la vue Pointage actuellement affichée (Rapports ou Contrôle) —
+// les deux partagent les mêmes actions de correction (ajout/suppression).
+function _ptgRefreshCurrentView() {
+  if (_ptgSubView === 'rapport')  _ptgRapportLoad();
+  if (_ptgSubView === 'controle') _ptgControleLoad();
 }
 
 function _ptgFmtCorrections(list) {
@@ -4040,6 +4060,358 @@ function _ptgFmtCorrections(list) {
 function _ptgFmtCorrectionsPdf(list) {
   if (!list || !list.length) return [];
   return list.map(c => `Correction admin ${_ptgHMSigned(c.delta_min)} - ${c.commentaire}`);
+}
+
+/* ─── Pointage — Contrôle hebdomadaire (revue salarié par salarié, semaine
+   par semaine — grille fixe lundi→vendredi même sans pointage, statut des
+   jours vides, verrouillage réel une fois contrôlé) ────────────────────── */
+
+const CONGE_TYPE_LABEL = { cp: 'Congés payés', maladie: 'Maladie', evenement_familial: 'Événement familial', sans_solde: 'Sans solde' };
+
+let _ptgControle = { employees: [], idx: 0, offset: -1, data: null };
+
+async function ptgControleInit() {
+  const db = window.SupabaseDB;
+  if (db) {
+    const { data } = await db.from('employes_actifs_vue').select('id, nom, prenom').order('nom').order('prenom');
+    _ptgControle.employees = data || [];
+  }
+  if (_ptgControle.idx >= _ptgControle.employees.length) _ptgControle.idx = 0;
+  await _ptgControleLoad();
+}
+
+// Semaine par défaut = la dernière semaine complète écoulée (offset -1),
+// cohérent avec une revue "j'ai fini la semaine, je contrôle maintenant".
+function _ptgControleSemaine() {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + _ptgControle.offset * 7);
+  monday.setHours(0, 0, 0, 0);
+  const days = [...Array(5)].map((_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+  const wn   = _ptgWeekNum(monday);
+  const fmtS = monday.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const fmtE = new Date(days[4] + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  return { semaineDebut: days[0], days, label: `Semaine ${wn} — ${fmtS} au ${fmtE}` };
+}
+
+function ptgControlePrevSemaine() { _ptgControle.offset--; _ptgControleLoad(); }
+function ptgControleNextSemaine() { _ptgControle.offset++; _ptgControleLoad(); }
+
+function ptgControlePrevEmploye() {
+  const n = _ptgControle.employees.length;
+  if (!n) return;
+  _ptgControle.idx = (_ptgControle.idx - 1 + n) % n;
+  _ptgControleLoad();
+}
+
+function ptgControleNextEmploye() {
+  const n = _ptgControle.employees.length;
+  if (!n) return;
+  _ptgControle.idx = (_ptgControle.idx + 1) % n;
+  _ptgControleLoad();
+}
+
+async function _ptgControleLoad() {
+  const content = document.getElementById('ptg-controle-content');
+  const db      = window.SupabaseDB;
+  if (!content) return;
+  const emp = _ptgControle.employees[_ptgControle.idx];
+  if (!db || !emp) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Aucun salarié actif</div>';
+    return;
+  }
+  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
+  const { semaineDebut, days, label } = _ptgControleSemaine();
+  const start = days[0], end = days[4];
+
+  const [
+    { data: hjData },
+    { data: badgesData },
+    { data: corrData },
+    { data: statutData },
+    { data: lockData },
+    { data: congesData },
+  ] = await Promise.all([
+    db.from('heures_rapport_vue').select('*').eq('employe_id', emp.id).gte('date', start).lte('date', end),
+    db.from('pointages_rapport_vue').select('*').eq('employe_id', emp.id).gte('date', start).lte('date', end),
+    db.from('heures_corrections').select('*').eq('employe_id', emp.id).gte('date', start).lte('date', end),
+    db.from('jours_statut').select('*').eq('employe_id', emp.id).gte('date', start).lte('date', end),
+    db.from('semaines_validees').select('*').eq('employe_id', emp.id).eq('semaine_debut', semaineDebut),
+    db.rpc('get_conges_rh'),
+  ]);
+
+  const hjByDate = new Map((hjData || []).map(r => [r.date, r]));
+  const badgesByDate = new Map();
+  (badgesData || []).forEach(p => { if (!badgesByDate.has(p.date)) badgesByDate.set(p.date, []); badgesByDate.get(p.date).push(p); });
+  const corrByDate = new Map();
+  (corrData || []).forEach(c => { if (!corrByDate.has(c.date)) corrByDate.set(c.date, []); corrByDate.get(c.date).push(c); });
+  const statutByDate = new Map((statutData || []).map(s => [s.date, s]));
+  const congesEmp = (congesData || []).filter(c => c.employe_id === emp.id);
+
+  const dayRows = days.map(date => ({
+    date,
+    hj: hjByDate.get(date) || null,
+    badges: badgesByDate.get(date) || [],
+    corrections: corrByDate.get(date) || [],
+    statutJour: statutByDate.get(date) || null,
+    conge: congesEmp.find(c => date >= c.date_debut && date <= c.date_fin) || null,
+  }));
+
+  _ptgControle.data = { emp, semaineDebut, label, dayRows, lock: (lockData || [])[0] || null };
+  _ptgControleRender();
+}
+
+function _ptgControleDayCard(d, emp, locked) {
+  const dayLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
+  let body;
+
+  if (d.conge) {
+    const lbl   = CONGE_TYPE_LABEL[d.conge.type] || d.conge.type;
+    const motif = d.conge.type === 'evenement_familial' && d.conge.motif ? ` — ${d.conge.motif}` : '';
+    body = `<div style="color:#3b82f6;font-weight:600;font-size:13px">🏖 Congé — ${lbl}${motif}</div>`;
+
+  } else if (d.hj) {
+    const nm     = _ptgItvMin(d.hj.duree_nette) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
+    const legal  = d.hj.pause_legale_appliquee ? ' <span style="color:var(--warn);font-size:9px" title="Conv. transport -20min">⚖</span>' : '';
+    const corBtn = locked ? '' : `<button data-emp="${emp.id}" data-date="${d.date}" data-label="${emp.prenom} ${emp.nom.toUpperCase()}"
+      onclick="ptgCorrectionModalShow(this)" class="btn btn-ghost btn-xs" style="margin-top:4px">✎ Corriger</button>`;
+    body = `
+      <div style="display:flex;gap:14px;font-size:12px;margin-bottom:4px;align-items:baseline">
+        <span>Arrivée <strong>${_ptgFmtTime(d.hj.heure_entree)}</strong></span>
+        <span>Départ <strong>${_ptgFmtTime(d.hj.heure_sortie)}</strong></span>
+        <span style="margin-left:auto;font-weight:800">${_ptgHMAdj(nm)}${legal}</span>
+      </div>
+      <div style="font-size:11px;line-height:1.6">${_ptgFmtBadges(d.badges)}${_ptgFmtCorrections(d.corrections)}</div>
+      ${corBtn}`;
+
+  } else if (d.statutJour) {
+    const ferie  = d.statutJour.statut === 'ferie';
+    const lbl    = ferie ? '🏖 Férié' : '✓ Non travaillé (confirmé)';
+    const color  = ferie ? '#3b82f6' : 'var(--muted)';
+    const cancel = locked ? '' : `<button onclick="ptgJourStatutClear('${emp.id}','${d.date}')" class="btn btn-ghost btn-xs">Annuler</button>`;
+    body = `<div style="display:flex;align-items:center;justify-content:space-between">
+      <span style="color:${color};font-weight:600;font-size:13px">${lbl}</span>${cancel}
+    </div>`;
+
+  } else {
+    const actions = locked ? '' : `
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button onclick="ptgJourStatutSet('${emp.id}','${d.date}','ferie')" class="btn btn-ghost btn-xs">🏖 Férié</button>
+        <button onclick="ptgJourStatutSet('${emp.id}','${d.date}','non_travaille')" class="btn btn-ghost btn-xs">✓ Non travaillé</button>
+        <button data-emp="${emp.id}" data-date="${d.date}" data-label="${emp.prenom} ${emp.nom.toUpperCase()}"
+          onclick="ptgCorrectionModalShow(this)" class="btn btn-ghost btn-xs">✎ Corriger</button>
+      </div>`;
+    body = `<div style="color:var(--warn);font-weight:600;font-size:13px">⚠ Rien pointé</div>${actions}`;
+  }
+
+  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+    <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:capitalize;margin-bottom:6px">${dayLabel}</div>
+    ${body}
+  </div>`;
+}
+
+function _ptgControleRender() {
+  const content = document.getElementById('ptg-controle-content');
+  if (!content || !_ptgControle.data) return;
+  const { emp, label, dayRows, lock } = _ptgControle.data;
+  const n      = _ptgControle.employees.length;
+  const locked = !!lock;
+
+  const header = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
+      <button onclick="ptgControlePrevEmploye()" class="btn btn-ghost btn-sm">◀ Salarié</button>
+      <div style="text-align:center">
+        <div style="font-size:16px;font-weight:800">${emp.prenom} ${emp.nom.toUpperCase()}</div>
+        <div style="font-size:11px;color:var(--muted)">${_ptgControle.idx + 1} / ${n}</div>
+      </div>
+      <button onclick="ptgControleNextEmploye()" class="btn btn-ghost btn-sm">Salarié ▶</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
+      <button onclick="ptgControlePrevSemaine()" class="btn btn-ghost btn-sm">←</button>
+      <span style="font-size:13px;font-weight:700">${label}</span>
+      <button onclick="ptgControleNextSemaine()" class="btn btn-ghost btn-sm">→</button>
+    </div>`;
+
+  const lockBanner = locked
+    ? `<div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:700;color:#10b981">🔒 Verrouillée${lock.valide_par ? ' par ' + lock.valide_par : ''} le ${new Date(lock.valide_le).toLocaleDateString('fr-FR')}</span>
+        <button onclick="ptgControleDeverrouiller()" class="btn btn-ghost btn-sm">🔓 Déverrouiller</button>
+      </div>`
+    : `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+        🔓 Non verrouillée — vérifie les 5 jours ci-dessous puis valide en bas de page.
+      </div>`;
+
+  const rows = dayRows.map(d => _ptgControleDayCard(d, emp, locked)).join('');
+
+  const footer = locked
+    ? `<div style="display:flex;gap:8px;margin-top:16px">
+        <button onclick="ptgControleExport()" class="btn btn-primary" style="flex:1;justify-content:center;padding:13px">⬇ PDF</button>
+        <button onclick="ptgControleNextEmploye()" class="btn btn-ghost" style="flex:1;justify-content:center;padding:13px">Salarié suivant ▶</button>
+      </div>`
+    : `<button onclick="ptgControleValider()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;margin-top:16px">☑ J'ai contrôlé — verrouiller cette semaine</button>`;
+
+  content.innerHTML = header + lockBanner + rows + footer;
+}
+
+async function ptgJourStatutSet(employeId, date, statut) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('definir_statut_jour', { p_employe_id: employeId, p_date: date, p_statut: statut });
+  if (error || data?.ok === false) { ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  _ptgControleLoad();
+}
+
+async function ptgJourStatutClear(employeId, date) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('effacer_statut_jour', { p_employe_id: employeId, p_date: date });
+  if (error || data?.ok === false) { ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  _ptgControleLoad();
+}
+
+async function ptgControleValider() {
+  const db = window.SupabaseDB;
+  if (!db || !_ptgControle.data) return;
+  const { emp, semaineDebut } = _ptgControle.data;
+  const { data, error } = await db.rpc('valider_semaine', { p_employe_id: emp.id, p_semaine_debut: semaineDebut, p_valide_par: 'Admin RH' });
+  if (error || data?.ok === false) { ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  ptgToast('🔒 Semaine verrouillée');
+  _ptgControleLoad();
+}
+
+async function ptgControleDeverrouiller() {
+  const db = window.SupabaseDB;
+  if (!db || !_ptgControle.data) return;
+  const { emp, semaineDebut } = _ptgControle.data;
+  const { data, error } = await db.rpc('deverrouiller_semaine', { p_employe_id: emp.id, p_semaine_debut: semaineDebut });
+  if (error || data?.ok === false) { ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  ptgToast('🔓 Semaine déverrouillée');
+  _ptgControleLoad();
+}
+
+function ptgControleExport() {
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF || !_ptgControle.data) { ptgToast('jsPDF non disponible'); return; }
+  const { emp, label, dayRows, lock, semaineDebut } = _ptgControle.data;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const W = 210, ml = 14, mr = 14, cw = W - ml - mr;
+  const cols = [28, 20, 20, 60, 24, 0];
+  cols[5] = cw - cols.slice(0, 5).reduce((a, b) => a + b, 0);
+  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  let y = 18;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(30, 41, 59);
+  doc.text('RH Sonotrad — Relevé de présence', ml, y);
+  y += 7;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100, 116, 139);
+  doc.text(label, ml, y);
+  doc.text(`Édité le ${today}`, W - mr, y, { align: 'right' });
+  y += 8;
+  doc.setDrawColor(226, 232, 240); doc.line(ml, y, W - mr, y);
+  y += 8;
+  doc.setFillColor(30, 41, 59); doc.roundedRect(ml, y, cw, 9, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(255, 255, 255);
+  doc.text(`${emp.prenom} ${emp.nom.toUpperCase()}`, ml + 4, y + 6.2);
+  y += 13;
+  const hdrLabels = ['Date', 'Arrivée', 'Départ', 'Badgeages', 'Durée nette', 'Statut'];
+  doc.setFillColor(248, 250, 252); doc.rect(ml, y, cw, 7, 'F');
+  doc.setDrawColor(226, 232, 240); doc.rect(ml, y, cw, 7, 'S');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+  let cx = ml;
+  hdrLabels.forEach((h, i) => {
+    const align = i === 0 || i === 3 ? 'left' : i === 4 ? 'right' : 'center';
+    const tx = align === 'right' ? cx + cols[i] - 2 : align === 'left' ? cx + 2 : cx + cols[i] / 2;
+    doc.text(h, tx, y + 4.8, { align });
+    cx += cols[i];
+  });
+  y += 7;
+  let tot = 0;
+  dayRows.forEach((d, i) => {
+    let nm = 0, statutTxt, noteLines = [];
+    if (d.conge) {
+      const lbl = CONGE_TYPE_LABEL[d.conge.type] || d.conge.type;
+      statutTxt = 'Congé';
+      noteLines = [`Congé - ${lbl}${d.conge.motif ? ' - ' + d.conge.motif : ''}`];
+    } else if (d.hj) {
+      nm = _ptgItvMin(d.hj.duree_nette) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
+      statutTxt = { SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[d.hj.statut] || d.hj.statut;
+    } else if (d.statutJour) {
+      statutTxt = d.statutJour.statut === 'ferie' ? 'Férié' : 'Non travaillé';
+      noteLines = [statutTxt + ' (confirmé)'];
+    } else {
+      statutTxt = 'Non renseigné';
+      noteLines = ['Rien pointé'];
+    }
+    tot += nm;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    let badgeLines = [];
+    _ptgFmtBadgesPdf(d.badges).forEach(line => { badgeLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+    let corrLines = [];
+    _ptgFmtCorrectionsPdf(d.corrections).forEach(line => { corrLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+    let noteWrapped = [];
+    noteLines.forEach(line => { noteWrapped.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+    if (!badgeLines.length && !corrLines.length && !noteWrapped.length) badgeLines = ['—'];
+    const rowH = Math.max(6.5, (badgeLines.length + corrLines.length + noteWrapped.length) * 3.2 + 3.3);
+    if (y + rowH > 270) { doc.addPage(); y = 18; }
+    doc.setFillColor(i % 2 ? 248 : 255, i % 2 ? 250 : 255, i % 2 ? 252 : 255);
+    doc.rect(ml, y, cw, rowH, 'F');
+    doc.setDrawColor(241, 245, 249); doc.line(ml, y + rowH, ml + cw, y + rowH);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(30, 41, 59);
+    const vals = [
+      _ptgFmtDate(d.date),
+      d.hj ? _ptgFmtTime(d.hj.heure_entree) : '—',
+      d.hj ? _ptgFmtTime(d.hj.heure_sortie) : '—',
+      null,
+      _ptgHMAdj(nm) + (d.hj?.pause_legale_appliquee ? ' *' : ''),
+      statutTxt,
+    ];
+    cx = ml;
+    vals.forEach((v, j) => {
+      if (j === 3) { cx += cols[j]; return; }
+      if (j > 0) doc.setFont('helvetica', 'normal');
+      const align = j === 0 ? 'left' : j === 4 ? 'right' : 'center';
+      const tx = align === 'right' ? cx + cols[j] - 2 : align === 'left' ? cx + 2 : cx + cols[j] / 2;
+      doc.text(String(v), tx, y + 4.3, { align });
+      cx += cols[j];
+    });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    const badgesX = ml + cols[0] + cols[1] + cols[2] + 2;
+    let ly = y + 4;
+    doc.setTextColor(71, 85, 105);
+    badgeLines.forEach(line => { doc.text(line, badgesX, ly, { align: 'left' }); ly += 3.2; });
+    doc.setTextColor(180, 120, 20);
+    corrLines.forEach(line => { doc.text(line, badgesX, ly, { align: 'left' }); ly += 3.2; });
+    doc.setTextColor(59, 130, 246);
+    noteWrapped.forEach(line => { doc.text(line, badgesX, ly, { align: 'left' }); ly += 3.2; });
+    y += rowH;
+  });
+  doc.setFillColor(239, 246, 255); doc.rect(ml, y, cw, 7, 'F');
+  doc.setDrawColor(191, 219, 254); doc.rect(ml, y, cw, 7, 'S');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(37, 99, 235);
+  doc.text(`Total ${emp.prenom} ${emp.nom.toUpperCase()}`, ml + 4, y + 4.8);
+  doc.text(_ptgHMAdj(tot), ml + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] - 2, y + 4.8, { align: 'right' });
+  y += 5;
+  if (dayRows.some(d => d.hj?.pause_legale_appliquee)) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+    doc.text('* pause conventionnelle de 20 min déduite automatiquement (aucune pause pointée, journée > 6h)', ml, y);
+    y += 8;
+  } else { y += 5; }
+  if (y > 240) { doc.addPage(); y = 18; }
+  doc.setDrawColor(226, 232, 240); doc.setFillColor(250, 251, 252);
+  doc.roundedRect(ml, y, cw, 34, 2, 2, 'FD');
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(71, 85, 105);
+  const validLe = lock?.valide_le ? new Date(lock.valide_le).toLocaleDateString('fr-FR') : today;
+  const txt = `Je soussigné(e), ${emp.prenom} ${emp.nom.toUpperCase()}, certifie l'exactitude du présent relevé de présence, contrôlé et verrouillé le ${validLe}.`;
+  doc.text(txt, ml + 4, y + 7, { maxWidth: cw - 8 });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+  doc.text('Date : ___________________________', ml + 4, y + 19);
+  doc.text('Signature :', ml + 4, y + 27);
+  doc.setDrawColor(148, 163, 184);
+  doc.line(ml + 28, y + 27, ml + cw - 4, y + 27);
+  doc.save(`releve_${emp.nom.toLowerCase()}_${semaineDebut}.pdf`);
 }
 
 // ═══════════════════════════════════════════
