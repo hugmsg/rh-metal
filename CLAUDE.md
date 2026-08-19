@@ -101,8 +101,10 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   RH — bouton "Compléter la fiche" qui verrouille nom/prénom sur la valeur
   déjà en base), **Optimisation** (simulateurs : hausse SMIC, heures sup,
   effectif/ETP, analyse conformité CCM, scénarios comparatifs), **Pointage**
-  (kiosque PIN, suivi du jour, rapports — connecté aux tables
-  `pointages`/`heures_journalieres`), **Congés** (solde CP par salarié,
+  (kiosque PIN — Entrée/Sortie uniquement, suivi du jour, rapports avec
+  corrections d'heures, contrôle hebdomadaire verrouillable — connecté aux
+  tables `pointages`/`heures_journalieres`/`heures_corrections`/
+  `jours_statut`/`semaines_validees`, détail plus bas), **Congés** (solde CP par salarié,
   historique des absences — voir plus bas), **Paramètres** (taux/grille CCM,
   sauvegarde JSON).
 - PWA : thème clair/sombre, cartes mobile pour l'équipe (vs table desktop),
@@ -239,6 +241,92 @@ client — la vérification anti-doublon (5s) n'étant pas atomique, 3 lignes `E
 pour un seul scan lors du test. Corrigé par un verrou transactionnel par salarié
 (`pg_advisory_xact_lock`, migration `20260818010000_pointage_nfc_lock.sql`) : re-testé avec 2
 onglets simultanément abonnés (local + prod), une seule ligne créée après le correctif.
+
+### Module Pointage — Kiosque simplifié, Rapports, Contrôle (2026-08-19)
+
+**Kiosque** : le sélecteur "Type de pointage" (PIN) ne propose plus que
+Entrée/Sortie (boutons Pause début/fin retirés, `index.html` ~ligne 885) —
+décision explicite de Hugo : en cas de départs/retours imprévus dans la
+journée, la notion de pause au pointage crée plus de problèmes qu'elle
+n'en résout. Le badge NFC ne gérait déjà que Entrée/Sortie (voir plus
+haut), le PIN s'aligne dessus. Les boutons Pause restent disponibles côté
+admin (Suivi du jour > Ajouter) pour les corrections manuelles.
+
+**Calcul des heures (`_sync_heures_journalieres`, trigger sur
+`pointages`)** : la durée brute d'une journée est la **somme de chaque
+cycle Entrée→Sortie** de la journée (pas juste 1ère entrée/dernière
+sortie) — un aller-retour imprévu au milieu de la journée est donc
+automatiquement exclu du temps travaillé, sans notion de pause. Corrigé
+le 2026-08-19 (migration `20260819123847`) : l'ancien calcul ne déduisait
+qu'un forfait de 20 min pour tout écart, quelle que soit sa durée réelle.
+
+**Rapports** (sous-onglet) : colonne "Badgeages" liste chaque intervalle
+Entrée→Sortie de la journée avec sa durée (`_ptgIntervals`), plus les
+corrections admin. Admin peut ajouter/retirer des heures en correction sur
+n'importe quel jour (bouton "✎ Corriger", table `heures_corrections`,
+commentaire obligatoire — visible sur le PDF signé par le salarié). PDF :
+la police standard jsPDF (WinAnsi) ne rend pas `→`/`⚖` → utilisé `->`/`*`
+avec légende à la place (glyphe cassé sinon, type `!'`).
+
+**Contrôle** (sous-onglet, nouveau) : répond au problème des jours
+oubliés (Rapports ne montre que les jours avec au moins un pointage).
+Deux écrans :
+- **Aperçu mensuel** (accueil) : grille salariés × jours ouvrés du mois,
+  inspirée d'un outil du prestataire actuel de Hugo (capture partagée en
+  session). Case vide = rien à signaler, code court sinon (CP/MAL/EVT/SS
+  depuis le module Congés, F=férié, **`!` rouge = jour ouvré passé sans
+  aucune résolution** — le signal recherché pour repérer les trous d'un
+  coup d'œil). Colonne "Sem." (total + 🔒 si verrouillée, encadrée des
+  deux côtés pour ne pas ressembler à un jour collé au lundi suivant)
+  après chaque semaine, colonne "Mois" à droite. Clic sur une semaine →
+  écran détail.
+- **Détail** (un salarié, une semaine, cartes lundi→vendredi) : pour un
+  jour vide, actions "🏖 Férié" / "🗓 Congé" (ouvre `upsert_conge_rh` —
+  remplace un ancien statut "Non travaillé" jugé trop vague et déconnecté
+  du module Congés, retiré le 2026-08-19) / "✎ Corriger". Un jour avec
+  une correction mais sans pointage réel s'affiche comme un jour travaillé
+  (Arrivée/Départ à "—"), jamais comme "Rien pointé" — sinon la correction
+  restait invisible et les boutons Férié/Congé restaient proposés à tort
+  sur un jour déjà traité (bug réel du 2026-08-19, corrigé). **Verrouillage
+  réel** : "☑ J'ai contrôlé — verrouiller cette semaine" (`valider_semaine`)
+  bloque ensuite côté serveur toute correction/pointage admin/statut
+  jour/congé qui chevauche cette semaine (`_semaine_est_verrouillee`,
+  vérifié dans `ajouter_correction_heures`, `admin_add_pointage`,
+  `definir_statut_jour`, `upsert_conge_rh`/`supprimer_conge_rh`) —
+  `deverrouiller_semaine` toujours disponible, bouton dédié. Une fois
+  verrouillée : export PDF dédié (même style que Rapports) + bouton
+  "Salarié suivant".
+
+Nouvelles tables : `heures_corrections`, `jours_statut` (statut manuel —
+seul `'ferie'` est encore proposé dans l'UI ; `'non_travaille'` reste
+accepté par le schéma pour les lignes déjà créées avant le retrait du
+bouton), `semaines_validees` (verrouillage). Pattern RLS identique à
+`pointages`/`heures_journalieres` (anon SELECT libre, écritures
+uniquement via RPC `SECURITY DEFINER`).
+
+**Piège daté résolu** : `toISOString().slice(0,10)` convertit en UTC avant
+de formater — en France l'été (CEST = UTC+2), une date construite à
+minuit local tombe la veille en UTC, donc la chaîne "YYYY-MM-DD" obtenue
+était décalée d'un jour en arrière (un vendredi affiché comme un
+dimanche). Utiliser `_ptgLocalDateStr(d)` (champs locaux du `Date`,
+jamais `toISOString()`) pour toute date-string dérivée d'un `Date` local
+dans le module Pointage — corrigé dans `_ptgRapportDates`,
+`_ptgControleSemaine`, `_ptgControleMoisInfo`, `_ptgMondayStr`,
+`_ptgTodayStr`. **Le même piège existe encore ailleurs dans `index.html`**
+(noms de fichiers export CSV/sauvegarde JSON, quelques dates par défaut,
+ex. `ptgAddModalShow`) — laissé tel quel, impact cosmétique seulement
+là-bas (juste le nom du fichier téléchargé), pas corrigé faute de demande.
+
+**Cadre légal vérifié (CCM IDCC 3248, recherche web du 2026-08-19)** : pas
+de dispositif individuel pour "faire des heures pour compenser une
+absence future" — seulement une modulation pluriannuelle formelle
+(accord d'entreprise, lissage de rémunération). D'où le choix des
+corrections/Contrôle en pur suivi interne, sans requalification
+automatique en heures supplémentaires ni valeur légale.
+
+**Limitation connue** : Rapports ne liste toujours que les jours ayant au
+moins une ligne `heures_journalieres` — pour un jour totalement vide
+(rien pointé, jamais résolu), utiliser Contrôle plutôt que Rapports.
 
 ## Déploiement
 
