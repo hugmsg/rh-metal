@@ -3593,6 +3593,14 @@ function _ptgRapportUpdateToggle() {
   bm.style.boxShadow  = mode === 'month' ? '0 1px 3px rgba(0,0,0,.2)' : 'none';
 }
 
+// "YYYY-MM-DD" à partir des champs LOCAUX du Date, jamais via toISOString()
+// (qui convertit en UTC — décale d'un jour en arrière l'été en France,
+// CEST = UTC+2, dès qu'on est proche de minuit local). Bug réel repéré le
+// 2026-08-19 sur la grille Contrôle (vendredi affiché comme dimanche).
+function _ptgLocalDateStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function _ptgRapportDates() {
   const { mode, offset } = _ptgRapport;
   if (mode === 'week') {
@@ -3602,8 +3610,8 @@ function _ptgRapportDates() {
     monday.setHours(0, 0, 0, 0);
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
-    const start  = monday.toISOString().slice(0, 10);
-    const end    = sunday.toISOString().slice(0, 10);
+    const start  = _ptgLocalDateStr(monday);
+    const end    = _ptgLocalDateStr(sunday);
     const wn     = _ptgWeekNum(monday);
     const fmtS   = monday.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
     const fmtE   = sunday.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -3612,8 +3620,8 @@ function _ptgRapportDates() {
     const now   = new Date();
     const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const last  = new Date(first.getFullYear(), first.getMonth() + 1, 0);
-    const start = first.toISOString().slice(0, 10);
-    const end   = last.toISOString().slice(0, 10);
+    const start = _ptgLocalDateStr(first);
+    const end   = _ptgLocalDateStr(last);
     const lbl   = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
     return { start, end, label: lbl.charAt(0).toUpperCase() + lbl.slice(1) };
   }
@@ -4072,7 +4080,7 @@ let _ptgControle = { mode: 'apercu', employees: [], idx: 0, offset: -1, moisOffs
 
 const CONGE_TYPE_CODE = { cp: 'CP', maladie: 'MAL', evenement_familial: 'EVT', sans_solde: 'SS' };
 
-function _ptgTodayStr() { return new Date().toISOString().slice(0, 10); }
+function _ptgTodayStr() { return _ptgLocalDateStr(new Date()); }
 
 async function ptgControleInit() {
   const db = window.SupabaseDB;
@@ -4095,7 +4103,7 @@ function _ptgControleSemaine() {
   const days = [...Array(5)].map((_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    return d.toISOString().slice(0, 10);
+    return _ptgLocalDateStr(d);
   });
   const wn   = _ptgWeekNum(monday);
   const fmtS = monday.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
@@ -4129,12 +4137,12 @@ function _ptgControleMoisInfo() {
   const days  = [];
   for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
     const dow = d.getDay();
-    if (dow >= 1 && dow <= 5) days.push(new Date(d).toISOString().slice(0, 10));
+    if (dow >= 1 && dow <= 5) days.push(_ptgLocalDateStr(d));
   }
   const lbl = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   return {
-    start: first.toISOString().slice(0, 10),
-    end:   last.toISOString().slice(0, 10),
+    start: _ptgLocalDateStr(first),
+    end:   _ptgLocalDateStr(last),
     days, label: lbl.charAt(0).toUpperCase() + lbl.slice(1),
   };
 }
@@ -4142,7 +4150,7 @@ function _ptgControleMoisInfo() {
 function _ptgMondayStr(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return d.toISOString().slice(0, 10);
+  return _ptgLocalDateStr(d);
 }
 
 // Regroupe les jours ouvrés du mois par semaine ISO (lundi) — les semaines
