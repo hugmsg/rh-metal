@@ -437,6 +437,7 @@ body.kiosk-mode #alert-badge,
 body.kiosk-mode #ok-badge,
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="admin"],
 body.kiosk-mode .ptg-subnav-btn[data-ptgview="rapport"],
+body.kiosk-mode .ptg-subnav-btn[data-ptgview="recup"],
 body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
 </style>
 </head>
@@ -845,6 +846,7 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       <button class="ptg-subnav-btn active" data-ptgview="kiosk"  onclick="ptgShowSubView('kiosk')">📟 Kiosque</button>
       <button class="ptg-subnav-btn"        data-ptgview="admin"  onclick="ptgShowSubView('admin')">📋 Suivi du jour</button>
       <button class="ptg-subnav-btn"        data-ptgview="rapport" onclick="ptgShowSubView('rapport')">📊 Rapports</button>
+      <button class="ptg-subnav-btn"        data-ptgview="recup"   onclick="ptgShowSubView('recup')">⏱ Récup</button>
     </div>
 
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
@@ -984,6 +986,23 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       </div>
 
       <div id="ptg-rpt-content">
+        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
+      </div>
+    </div>
+
+    <!-- ── VUE : RÉCUP (solde d'heures informel) ───────────────────────── -->
+    <div class="ptg-view" id="view-ptg-recup">
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+        Suivi interne, sans valeur légale automatique — n'affecte ni la paie ni le calcul des heures sup.
+        Le solde auto (semaine) compare les heures pointées au contrat ; ajoute une ligne manuelle pour corriger un cas particulier (semaine avec congés, etc.).
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+        <button onclick="ptgRecupModalShow()" class="btn btn-primary btn-sm">＋ Ajouter un mouvement</button>
+      </div>
+
+      <div id="ptg-recup-content">
         <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
       </div>
     </div>
@@ -1152,6 +1171,24 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
       </div>
     </div>
     <button onclick="ptgAddConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer le pointage</button>
+  </div>
+</div>
+
+<div id="ptg-recup-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
+  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:16px;font-weight:700;margin:0">Ajouter un mouvement (récup)</h3>
+      <button class="btn btn-ghost btn-sm" onclick="ptgRecupModalHide()">✕</button>
+    </div>
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Salarié</label>
+    <select id="ptg-recup-emp" class="filter-sel" style="width:100%;margin-bottom:14px">
+      <option value="">Sélectionner…</option>
+    </select>
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Heures (+ si fait en plus, − si à récupérer)</label>
+    <input type="number" id="ptg-recup-heures" step="0.25" placeholder="ex : 2 ou -3.5" class="filter-sel" style="width:100%;margin-bottom:14px">
+    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Commentaire</label>
+    <input type="text" id="ptg-recup-commentaire" placeholder="Pourquoi ce mouvement ?" class="filter-sel" style="width:100%;margin-bottom:18px">
+    <button onclick="ptgRecupConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
   </div>
 </div>
 
@@ -2925,10 +2962,12 @@ function ptgShowSubView(view) {
   document.getElementById('view-pointage').classList.toggle('active', view === 'kiosk');
   document.getElementById('view-ptg-admin').classList.toggle('active', view === 'admin');
   document.getElementById('view-ptg-rapport').classList.toggle('active', view === 'rapport');
+  document.getElementById('view-ptg-recup').classList.toggle('active', view === 'recup');
   document.querySelectorAll('.ptg-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.ptgview === view));
   if (view === 'kiosk')   ptgInit();
   if (view === 'admin')   ptgAdminInit();
   if (view === 'rapport') ptgRapportInit();
+  if (view === 'recup')   ptgRecupInit();
 }
 
 /* ─ Kiosque PIN ─ */
@@ -3920,6 +3959,142 @@ async function ptgRapportExport() {
   });
   const filename = `releve_presence_${label.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`;
   doc.save(filename);
+}
+
+/* ─── Pointage — Récup (solde d'heures informel) ──────────────────────── */
+
+function _ptgHMSigned(min) {
+  if (!min) return '0h00';
+  return (min < 0 ? '-' : '+') + _ptgHM(Math.abs(min));
+}
+
+async function ptgRecupInit() {
+  const db = window.SupabaseDB;
+  if (db) {
+    const { data } = await db.from('employes_actifs_vue').select('id, nom, prenom');
+    const sel = document.getElementById('ptg-recup-emp');
+    if (sel && data) {
+      sel.innerHTML = '<option value="">Sélectionner…</option>' +
+        data.map(e => `<option value="${e.id}">${e.prenom} ${e.nom.toUpperCase()}</option>`).join('');
+    }
+  }
+  await _ptgRecupLoad();
+}
+
+async function _ptgRecupLoad() {
+  const db      = window.SupabaseDB;
+  const content = document.getElementById('ptg-recup-content');
+  if (!db || !content) return;
+  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
+  const { data, error } = await db.from('heures_recup_vue').select('*').order('nom').order('prenom');
+  if (error) {
+    content.innerHTML = `<div style="color:var(--danger);padding:16px;font-size:13px">Erreur : ${error.message}</div>`;
+    return;
+  }
+  _ptgRecupRender(data || []);
+}
+
+function _ptgRecupRender(data) {
+  const content = document.getElementById('ptg-recup-content');
+  if (!content) return;
+  if (!data.length) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Aucun mouvement enregistré</div>';
+    return;
+  }
+  const groups = new Map();
+  data.forEach(r => {
+    if (!groups.has(r.employe_id)) groups.set(r.employe_id, { nom: r.nom, prenom: r.prenom, rows: [] });
+    groups.get(r.employe_id).rows.push(r);
+  });
+  // Le solde le plus déséquilibré (positif ou négatif) en premier — plus utile à l'œil
+  const sorted = [...groups.entries()].sort((a, b) => {
+    const soldeA = a[1].rows.reduce((s, r) => s + r.delta_min, 0);
+    const soldeB = b[1].rows.reduce((s, r) => s + r.delta_min, 0);
+    return Math.abs(soldeB) - Math.abs(soldeA);
+  });
+  let html = '';
+  sorted.forEach(([, { nom, prenom, rows }]) => {
+    const solde = rows.reduce((s, r) => s + r.delta_min, 0);
+    const soldeColor = solde > 0 ? '#10b981' : solde < 0 ? '#ef4444' : 'var(--muted)';
+    const rowsSorted = [...rows].sort((a, b) =>
+      new Date(b.semaine_debut) - new Date(a.semaine_debut) || new Date(b.created_at) - new Date(a.created_at));
+    const tbody = rowsSorted.map(r => {
+      const origine = r.type === 'auto'
+        ? '<span style="background:var(--surface2);color:var(--muted);padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">Auto</span>'
+        : '<span style="background:rgba(124,108,248,.15);color:var(--accent);padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700">Manuel</span>';
+      const del = r.type === 'manuel'
+        ? `<button onclick="ptgRecupDelete('${r.id}')" class="btn btn-ghost btn-xs" title="Supprimer">✕</button>` : '';
+      const deltaColor = r.delta_min > 0 ? '#10b981' : r.delta_min < 0 ? '#ef4444' : 'var(--muted)';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 10px">semaine du ${_ptgFmtDate(r.semaine_debut)}</td>
+        <td style="padding:6px 10px;text-align:center">${origine}</td>
+        <td style="padding:6px 10px;text-align:right;font-weight:700;color:${deltaColor}">${_ptgHMSigned(r.delta_min)}</td>
+        <td style="padding:6px 10px;color:var(--muted)">${r.commentaire || '—'}</td>
+        <td style="padding:6px 10px;text-align:right">${del}</td>
+      </tr>`;
+    }).join('');
+    html += `<div style="margin-bottom:16px;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.2)">
+      <div style="background:var(--surface3);padding:9px 14px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:14px;font-weight:700">${prenom} ${nom.toUpperCase()}</span>
+        <span style="font-size:15px;font-weight:800;color:${soldeColor}">${_ptgHMSigned(solde)}</span>
+      </div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
+          <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:600">Semaine</th>
+          <th style="padding:6px 10px;text-align:center;color:var(--muted);font-weight:600">Origine</th>
+          <th style="padding:6px 10px;text-align:right;color:var(--muted);font-weight:600">Écart</th>
+          <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:600">Commentaire</th>
+          <th style="padding:6px 10px"></th>
+        </tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+      </div>
+    </div>`;
+  });
+  content.innerHTML = html;
+}
+
+function ptgRecupModalShow() {
+  const modal = document.getElementById('ptg-recup-modal');
+  if (!modal) return;
+  document.getElementById('ptg-recup-emp').value = '';
+  document.getElementById('ptg-recup-heures').value = '';
+  document.getElementById('ptg-recup-commentaire').value = '';
+  modal.style.display = 'flex';
+}
+
+function ptgRecupModalHide() {
+  const modal = document.getElementById('ptg-recup-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function ptgRecupConfirm() {
+  const empId       = document.getElementById('ptg-recup-emp')?.value;
+  const heures      = parseFloat(document.getElementById('ptg-recup-heures')?.value);
+  const commentaire = document.getElementById('ptg-recup-commentaire')?.value?.trim();
+  if (!empId) { ptgToast('Sélectionnez un salarié'); return; }
+  if (!heures || isNaN(heures)) { ptgToast('Indiquez un nombre d\'heures (positif ou négatif)'); return; }
+  if (!commentaire) { ptgToast('Un commentaire est requis (pourquoi ce mouvement ?)'); return; }
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('ajouter_mouvement_recup',
+    { p_employe_id: empId, p_delta_min: Math.round(heures * 60), p_commentaire: commentaire });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return;
+  }
+  ptgRecupModalHide();
+  ptgToast('✓ Mouvement ajouté');
+  _ptgRecupLoad();
+}
+
+async function ptgRecupDelete(id) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { error } = await db.rpc('supprimer_mouvement_recup', { p_id: id });
+  if (error) { ptgToast('Erreur : ' + error.message); return; }
+  ptgToast('✓ Mouvement supprimé');
+  _ptgRecupLoad();
 }
 
 // ═══════════════════════════════════════════
