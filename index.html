@@ -3651,17 +3651,50 @@ async function _ptgRapportLoad() {
   _ptgRapportRender(rows);
 }
 
-function _ptgFmtBadges(list) {
-  if (!list || !list.length) return '—';
-  const icon = { ENTREE: '🟢', SORTIE: '🔴', PAUSE_DEBUT: '⏸', PAUSE_FIN: '▶' };
-  return list.map(p => `${icon[p.type] || '•'}${_ptgFmtTime(p.horodatage)}`).join(' ');
+// Regroupe les pointages bruts (Entrée/Sortie, + Pause si saisie admin) en
+// intervalles début→fin appariés chronologiquement — un badge scanné seul
+// (oubli, ou service en cours) ressort en intervalle sans fin ("…").
+function _ptgIntervals(list) {
+  if (!list || !list.length) return [];
+  const pair = (startType, endType, isPause) => {
+    const out = [];
+    let open = null;
+    list.forEach(p => {
+      if (p.type === startType) { if (!open) open = p.horodatage; }
+      else if (p.type === endType && open) { out.push({ start: open, end: p.horodatage, pause: isPause }); open = null; }
+    });
+    if (open) out.push({ start: open, end: null, pause: isPause });
+    return out;
+  };
+  return [...pair('ENTREE', 'SORTIE', false), ...pair('PAUSE_DEBUT', 'PAUSE_FIN', true)]
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
 }
 
-// Variante sans emoji — les polices standard de jsPDF ne les rendent pas
+function _ptgFmtBadges(list) {
+  const intervals = _ptgIntervals(list);
+  if (!intervals.length) return '—';
+  return intervals.map(iv => {
+    const s = _ptgFmtTime(iv.start);
+    const e = iv.end ? _ptgFmtTime(iv.end) : '…';
+    const durMin = iv.end ? Math.round((new Date(iv.end) - new Date(iv.start)) / 60000) : null;
+    const dur = durMin !== null ? ` <span style="color:var(--muted)">(${_ptgHM(durMin)})</span>` : '';
+    const prefix = iv.pause ? '<span title="Pause — correction admin" style="color:var(--warn)">⏸ </span>' : '';
+    return `<div style="white-space:nowrap">${prefix}${s} → ${e}${dur}</div>`;
+  }).join('');
+}
+
+// Variante sans emoji/HTML — pour l'export PDF (jsPDF, une ligne par intervalle)
 function _ptgFmtBadgesPdf(list) {
-  if (!list || !list.length) return '—';
-  const label = { ENTREE: 'E', SORTIE: 'S', PAUSE_DEBUT: 'P.déb', PAUSE_FIN: 'P.fin' };
-  return list.map(p => `${label[p.type] || p.type} ${_ptgFmtTime(p.horodatage)}`).join('  ·  ');
+  const intervals = _ptgIntervals(list);
+  if (!intervals.length) return ['—'];
+  return intervals.map(iv => {
+    const s = _ptgFmtTime(iv.start);
+    const e = iv.end ? _ptgFmtTime(iv.end) : '…';
+    const durMin = iv.end ? Math.round((new Date(iv.end) - new Date(iv.start)) / 60000) : null;
+    const dur = durMin !== null ? `  (${_ptgHM(durMin)})` : '';
+    const prefix = iv.pause ? 'Pause ' : '';
+    return `${prefix}${s} → ${e}${dur}`;
+  });
 }
 
 function _ptgItvMin(iv) {
@@ -3713,7 +3746,7 @@ function _ptgRapportRender(data) {
         <td style="padding:7px 10px;font-weight:600">${_ptgFmtDate(r.date)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_entree)}</td>
         <td style="padding:7px 10px;text-align:center">${_ptgFmtTime(r.heure_sortie)}</td>
-        <td style="padding:7px 10px;text-align:left;color:var(--muted);white-space:nowrap">${_ptgFmtBadges(r.badges)}</td>
+        <td style="padding:7px 10px;text-align:left;color:var(--text);font-size:11px;line-height:1.7">${_ptgFmtBadges(r.badges)}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:700">${_ptgHM(nm)}${legal}</td>
         <td style="padding:7px 10px;text-align:center">${statutBadge(r.statut)}</td>
       </tr>`;
@@ -3814,7 +3847,9 @@ async function ptgRapportExport() {
       tot += nm;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      const badgesLines = doc.splitTextToSize(_ptgFmtBadgesPdf(r.badges), cols[3] - 4);
+      let badgesLines = [];
+      _ptgFmtBadgesPdf(r.badges).forEach(line => { badgesLines.push(...doc.splitTextToSize(line, cols[3] - 4)); });
+      if (!badgesLines.length) badgesLines = ['—'];
       const rowH = Math.max(6.5, badgesLines.length * 3.2 + 3.3);
       if (y + rowH > 270) { doc.addPage(); y = 18; }
       doc.setFillColor(i % 2 ? 248 : 255, i % 2 ? 250 : 255, i % 2 ? 252 : 255);
