@@ -4209,7 +4209,7 @@ function _ptgControleCelluleInfo(empId, date, ap) {
   const key = `${empId}|${date}`;
   const conge = ap.conges.find(c => c.employe_id === empId && date >= c.date_debut && date <= c.date_fin);
   if (conge) return { code: CONGE_TYPE_CODE[conge.type] || '?', kind: 'conge' };
-  if (ap.hjByKey.has(key)) return { code: '', kind: 'travaille' };
+  if (ap.hjByKey.has(key) || ap.corrByKey.has(key)) return { code: '', kind: 'travaille' };
   const statutJour = ap.statutByKey.get(key);
   if (statutJour) return statutJour.statut === 'ferie' ? { code: 'F', kind: 'ferie' } : { code: '', kind: 'non_travaille' };
   if (date > _ptgTodayStr()) return { code: '', kind: 'futur' };
@@ -4224,9 +4224,10 @@ function _ptgControleApercuRender() {
 
   const bgByKind = {
     conge: 'rgba(59,130,246,.15)', ferie: 'rgba(59,130,246,.1)', alerte: 'rgba(239,68,68,.22)',
-    travaille: 'transparent', non_travaille: 'transparent', futur: 'transparent',
+    travaille: 'rgba(16,185,129,.14)', non_travaille: 'transparent', futur: 'transparent',
   };
   const colorByKind = { alerte: '#ef4444', conge: '#3b82f6', ferie: '#3b82f6' };
+  const weekBorder = 'border-left:2px solid var(--border);border-right:2px solid var(--border)';
 
   let theadDays = '';
   ap.weeks.forEach(w => {
@@ -4234,7 +4235,7 @@ function _ptgControleApercuRender() {
       const d = new Date(date + 'T00:00:00');
       theadDays += `<th style="padding:4px 3px;font-size:9px;color:var(--muted);font-weight:600;min-width:26px">${d.toLocaleDateString('fr-FR', { weekday: 'short' })}<br>${d.getDate()}</th>`;
     });
-    theadDays += `<th style="padding:4px 4px;font-size:9px;color:var(--muted);font-weight:700;min-width:38px;border-left:2px solid var(--border)">Sem.</th>`;
+    theadDays += `<th style="padding:4px 4px;font-size:9px;color:var(--muted);font-weight:700;min-width:38px;${weekBorder};background:var(--surface2)">Sem.</th>`;
   });
   theadDays += `<th style="padding:4px 6px;font-size:9px;color:var(--muted);font-weight:700;min-width:48px;border-left:2px solid var(--border)">Mois</th>`;
 
@@ -4248,15 +4249,18 @@ function _ptgControleApercuRender() {
         const key  = `${emp.id}|${date}`;
         const hj   = ap.hjByKey.get(key);
         const corr = ap.corrByKey.get(key) || [];
-        const nm   = hj ? _ptgItvMin(hj.duree_nette) + corr.reduce((s, c) => s + c.delta_min, 0) : 0;
+        const nm   = (hj ? _ptgItvMin(hj.duree_nette) : 0) + corr.reduce((s, c) => s + c.delta_min, 0);
         weekTotal += nm;
+        const cellTxt = info.kind === 'travaille'
+          ? `<span style="font-size:8.5px;font-weight:600;opacity:.8">${_ptgHM(nm)}</span>`
+          : info.code;
         rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')" title="${_ptgFmtDate(date)}"
-          style="cursor:pointer;text-align:center;padding:5px 2px;font-size:10px;font-weight:700;background:${bgByKind[info.kind]};color:${colorByKind[info.kind] || 'var(--text)'}">${info.code}</td>`;
+          style="cursor:pointer;text-align:center;padding:5px 2px;font-size:10px;font-weight:700;background:${bgByKind[info.kind]};color:${colorByKind[info.kind] || 'var(--text)'}">${cellTxt}</td>`;
       });
       moisTotal += weekTotal;
       const lock = ap.lockByKey.get(`${emp.id}|${w.semaineDebut}`);
       rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')"
-        style="cursor:pointer;text-align:center;padding:5px 3px;font-size:10px;font-weight:700;border-left:2px solid var(--border);background:${lock ? 'rgba(16,185,129,.12)' : 'transparent'}">${lock ? '🔒' : ''} ${_ptgHM(weekTotal)}</td>`;
+        style="cursor:pointer;text-align:center;padding:5px 3px;font-size:10px;font-weight:700;${weekBorder};background:${lock ? 'rgba(16,185,129,.12)' : 'var(--surface2)'}">${lock ? '🔒' : ''} ${_ptgHM(weekTotal)}</td>`;
     });
     rowHtml += `<td style="text-align:right;padding:5px 6px;font-size:12px;font-weight:800;border-left:2px solid var(--border)">${_ptgHM(moisTotal)}</td>`;
     return `<tr style="border-bottom:1px solid var(--border)">${rowHtml}</tr>`;
