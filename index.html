@@ -4368,15 +4368,18 @@ function _ptgControleDayCard(d, emp, locked) {
     const motif = d.conge.type === 'evenement_familial' && d.conge.motif ? ` — ${d.conge.motif}` : '';
     body = `<div style="color:#3b82f6;font-weight:600;font-size:13px">🏖 Congé — ${lbl}${motif}</div>`;
 
-  } else if (d.hj) {
-    const nm     = _ptgItvMin(d.hj.duree_nette) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
-    const legal  = d.hj.pause_legale_appliquee ? ' <span style="color:var(--warn);font-size:9px" title="Conv. transport -20min">⚖</span>' : '';
+  } else if (d.hj || (d.corrections && d.corrections.length)) {
+    // Pointages réels (d.hj) et/ou correction admin seule (jour jamais pointé
+    // mais des heures ajoutées à la main) — même carte pour les deux, sinon
+    // une correction sur un jour vide restait invisible ici (bug du 2026-08-19).
+    const nm     = _ptgItvMin(d.hj?.duree_nette) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
+    const legal  = d.hj?.pause_legale_appliquee ? ' <span style="color:var(--warn);font-size:9px" title="Conv. transport -20min">⚖</span>' : '';
     const corBtn = locked ? '' : `<button data-emp="${emp.id}" data-date="${d.date}" data-label="${emp.prenom} ${emp.nom.toUpperCase()}"
       onclick="ptgCorrectionModalShow(this)" class="btn btn-ghost btn-xs" style="margin-top:4px">✎ Corriger</button>`;
     body = `
       <div style="display:flex;gap:14px;font-size:12px;margin-bottom:4px;align-items:baseline">
-        <span>Arrivée <strong>${_ptgFmtTime(d.hj.heure_entree)}</strong></span>
-        <span>Départ <strong>${_ptgFmtTime(d.hj.heure_sortie)}</strong></span>
+        <span>Arrivée <strong>${_ptgFmtTime(d.hj?.heure_entree)}</strong></span>
+        <span>Départ <strong>${_ptgFmtTime(d.hj?.heure_sortie)}</strong></span>
         <span style="margin-left:auto;font-weight:800">${_ptgHMAdj(nm)}${legal}</span>
       </div>
       <div style="font-size:11px;line-height:1.6">${_ptgFmtBadges(d.badges)}${_ptgFmtCorrections(d.corrections)}</div>
