@@ -4068,7 +4068,11 @@ function _ptgFmtCorrectionsPdf(list) {
 
 const CONGE_TYPE_LABEL = { cp: 'Congés payés', maladie: 'Maladie', evenement_familial: 'Événement familial', sans_solde: 'Sans solde' };
 
-let _ptgControle = { employees: [], idx: 0, offset: -1, data: null };
+let _ptgControle = { mode: 'apercu', employees: [], idx: 0, offset: -1, moisOffset: 0, data: null, apercu: null };
+
+const CONGE_TYPE_CODE = { cp: 'CP', maladie: 'MAL', evenement_familial: 'EVT', sans_solde: 'SS' };
+
+function _ptgTodayStr() { return new Date().toISOString().slice(0, 10); }
 
 async function ptgControleInit() {
   const db = window.SupabaseDB;
@@ -4077,7 +4081,8 @@ async function ptgControleInit() {
     _ptgControle.employees = data || [];
   }
   if (_ptgControle.idx >= _ptgControle.employees.length) _ptgControle.idx = 0;
-  await _ptgControleLoad();
+  if (_ptgControle.mode === 'detail') await _ptgControleLoad();
+  else await _ptgControleApercuLoad();
 }
 
 // Semaine par défaut = la dernière semaine complète écoulée (offset -1),
@@ -4114,6 +4119,183 @@ function ptgControleNextEmploye() {
   _ptgControle.idx = (_ptgControle.idx + 1) % n;
   _ptgControleLoad();
 }
+
+/* ── Aperçu mensuel (grille salariés × jours, écran d'accueil du sous-onglet) ── */
+
+function _ptgControleMoisInfo() {
+  const now   = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + _ptgControle.moisOffset, 1);
+  const last  = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+  const days  = [];
+  for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
+    const dow = d.getDay();
+    if (dow >= 1 && dow <= 5) days.push(new Date(d).toISOString().slice(0, 10));
+  }
+  const lbl = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  return {
+    start: first.toISOString().slice(0, 10),
+    end:   last.toISOString().slice(0, 10),
+    days, label: lbl.charAt(0).toUpperCase() + lbl.slice(1),
+  };
+}
+
+function _ptgMondayStr(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+// Regroupe les jours ouvrés du mois par semaine ISO (lundi) — les semaines
+// à cheval sur deux mois n'affichent que les jours du mois en cours, comme
+// sur la référence (colonne "Semaine" en bord de chaque groupe).
+function _ptgControleGroupWeeks(days) {
+  const weeks = [];
+  let current = null;
+  days.forEach(date => {
+    const monday = _ptgMondayStr(date);
+    if (!current || current.semaineDebut !== monday) {
+      current = { semaineDebut: monday, days: [] };
+      weeks.push(current);
+    }
+    current.days.push(date);
+  });
+  return weeks;
+}
+
+function ptgControleApercuNav(dir) { _ptgControle.moisOffset += dir; _ptgControleApercuLoad(); }
+
+async function _ptgControleApercuLoad() {
+  const content = document.getElementById('ptg-controle-content');
+  const db      = window.SupabaseDB;
+  if (!content) return;
+  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
+  const { start, end, days, label } = _ptgControleMoisInfo();
+  const weeks = _ptgControleGroupWeeks(days);
+  const semaineDebuts = [...new Set(weeks.map(w => w.semaineDebut))];
+
+  const [
+    { data: hjData },
+    { data: corrData },
+    { data: statutData },
+    { data: lockData },
+    { data: congesData },
+  ] = await Promise.all([
+    db.from('heures_rapport_vue').select('*').gte('date', start).lte('date', end),
+    db.from('heures_corrections').select('*').gte('date', start).lte('date', end),
+    db.from('jours_statut').select('*').gte('date', start).lte('date', end),
+    db.from('semaines_validees').select('*').in('semaine_debut', semaineDebuts),
+    db.rpc('get_conges_rh'),
+  ]);
+
+  const hjByKey = new Map((hjData || []).map(r => [`${r.employe_id}|${r.date}`, r]));
+  const corrByKey = new Map();
+  (corrData || []).forEach(c => { const k = `${c.employe_id}|${c.date}`; if (!corrByKey.has(k)) corrByKey.set(k, []); corrByKey.get(k).push(c); });
+  const statutByKey = new Map((statutData || []).map(s => [`${s.employe_id}|${s.date}`, s]));
+  const lockByKey = new Map((lockData || []).map(l => [`${l.employe_id}|${l.semaine_debut}`, l]));
+
+  _ptgControle.apercu = { label, weeks, hjByKey, corrByKey, statutByKey, lockByKey, conges: congesData || [] };
+  _ptgControleApercuRender();
+}
+
+function _ptgControleCelluleInfo(empId, date, ap) {
+  const key = `${empId}|${date}`;
+  const conge = ap.conges.find(c => c.employe_id === empId && date >= c.date_debut && date <= c.date_fin);
+  if (conge) return { code: CONGE_TYPE_CODE[conge.type] || '?', kind: 'conge' };
+  if (ap.hjByKey.has(key)) return { code: '', kind: 'travaille' };
+  const statutJour = ap.statutByKey.get(key);
+  if (statutJour) return statutJour.statut === 'ferie' ? { code: 'F', kind: 'ferie' } : { code: '', kind: 'non_travaille' };
+  if (date > _ptgTodayStr()) return { code: '', kind: 'futur' };
+  return { code: '!', kind: 'alerte' };
+}
+
+function _ptgControleApercuRender() {
+  const content = document.getElementById('ptg-controle-content');
+  if (!content || !_ptgControle.apercu) return;
+  const ap = _ptgControle.apercu;
+  const employees = _ptgControle.employees;
+
+  const bgByKind = {
+    conge: 'rgba(59,130,246,.15)', ferie: 'rgba(59,130,246,.1)', alerte: 'rgba(239,68,68,.22)',
+    travaille: 'transparent', non_travaille: 'transparent', futur: 'transparent',
+  };
+  const colorByKind = { alerte: '#ef4444', conge: '#3b82f6', ferie: '#3b82f6' };
+
+  let theadDays = '';
+  ap.weeks.forEach(w => {
+    w.days.forEach(date => {
+      const d = new Date(date + 'T00:00:00');
+      theadDays += `<th style="padding:4px 3px;font-size:9px;color:var(--muted);font-weight:600;min-width:26px">${d.toLocaleDateString('fr-FR', { weekday: 'short' })}<br>${d.getDate()}</th>`;
+    });
+    theadDays += `<th style="padding:4px 4px;font-size:9px;color:var(--muted);font-weight:700;min-width:38px;border-left:2px solid var(--border)">Sem.</th>`;
+  });
+  theadDays += `<th style="padding:4px 6px;font-size:9px;color:var(--muted);font-weight:700;min-width:48px;border-left:2px solid var(--border)">Mois</th>`;
+
+  const rows = employees.map(emp => {
+    let rowHtml = `<td style="padding:5px 8px;font-size:12px;font-weight:600;white-space:nowrap;position:sticky;left:0;background:var(--surface)">${emp.prenom} ${emp.nom.toUpperCase()}</td>`;
+    let moisTotal = 0;
+    ap.weeks.forEach(w => {
+      let weekTotal = 0;
+      w.days.forEach(date => {
+        const info = _ptgControleCelluleInfo(emp.id, date, ap);
+        const key  = `${emp.id}|${date}`;
+        const hj   = ap.hjByKey.get(key);
+        const corr = ap.corrByKey.get(key) || [];
+        const nm   = hj ? _ptgItvMin(hj.duree_nette) + corr.reduce((s, c) => s + c.delta_min, 0) : 0;
+        weekTotal += nm;
+        rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')" title="${_ptgFmtDate(date)}"
+          style="cursor:pointer;text-align:center;padding:5px 2px;font-size:10px;font-weight:700;background:${bgByKind[info.kind]};color:${colorByKind[info.kind] || 'var(--text)'}">${info.code}</td>`;
+      });
+      moisTotal += weekTotal;
+      const lock = ap.lockByKey.get(`${emp.id}|${w.semaineDebut}`);
+      rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')"
+        style="cursor:pointer;text-align:center;padding:5px 3px;font-size:10px;font-weight:700;border-left:2px solid var(--border);background:${lock ? 'rgba(16,185,129,.12)' : 'transparent'}">${lock ? '🔒' : ''} ${_ptgHM(weekTotal)}</td>`;
+    });
+    rowHtml += `<td style="text-align:right;padding:5px 6px;font-size:12px;font-weight:800;border-left:2px solid var(--border)">${_ptgHM(moisTotal)}</td>`;
+    return `<tr style="border-bottom:1px solid var(--border)">${rowHtml}</tr>`;
+  }).join('');
+
+  content.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
+      <button onclick="ptgControleApercuNav(-1)" class="btn btn-ghost btn-sm">←</button>
+      <span style="font-size:14px;font-weight:700">${ap.label}</span>
+      <button onclick="ptgControleApercuNav(1)" class="btn btn-ghost btn-sm">→</button>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px">
+      <table style="border-collapse:collapse;font-size:11px;white-space:nowrap;width:100%">
+        <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
+          <th style="padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;position:sticky;left:0;background:var(--surface2)">Salarié</th>
+          ${theadDays}
+        </tr></thead>
+        <tbody>${rows || `<tr><td style="padding:20px;color:var(--muted);font-size:13px">Aucun salarié actif</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap">
+      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,.35);border-radius:2px;vertical-align:middle"></span> à vérifier (rien pointé)</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(59,130,246,.2);border-radius:2px;vertical-align:middle"></span> congé / férié</span>
+      <span>🔒 semaine verrouillée</span>
+      <span>Clique une semaine pour l'ouvrir en détail</span>
+    </div>`;
+}
+
+function ptgControleOuvrirSemaine(employeId, semaineDebut) {
+  const idx = _ptgControle.employees.findIndex(e => e.id === employeId);
+  if (idx >= 0) _ptgControle.idx = idx;
+  const now = new Date();
+  const curMonday = new Date(now);
+  curMonday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  curMonday.setHours(0, 0, 0, 0);
+  const target = new Date(semaineDebut + 'T00:00:00');
+  _ptgControle.offset = Math.round((target - curMonday) / (7 * 86400000));
+  _ptgControle.mode = 'detail';
+  _ptgControleLoad();
+}
+
+function ptgControleRetourApercu() {
+  _ptgControle.mode = 'apercu';
+  _ptgControleApercuLoad();
+}
+
+/* ── Vue détail (un salarié, une semaine, corrections + verrouillage) ── */
 
 async function _ptgControleLoad() {
   const content = document.getElementById('ptg-controle-content');
@@ -4222,6 +4404,7 @@ function _ptgControleRender() {
   const locked = !!lock;
 
   const header = `
+    <button onclick="ptgControleRetourApercu()" class="btn btn-ghost btn-sm" style="margin-bottom:10px">← Vue d'ensemble</button>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">
       <button onclick="ptgControlePrevEmploye()" class="btn btn-ghost btn-sm">◀ Salarié</button>
       <div style="text-align:center">
