@@ -3693,7 +3693,7 @@ function _ptgFmtBadgesPdf(list) {
     const durMin = iv.end ? Math.round((new Date(iv.end) - new Date(iv.start)) / 60000) : null;
     const dur = durMin !== null ? `  (${_ptgHM(durMin)})` : '';
     const prefix = iv.pause ? 'Pause ' : '';
-    return `${prefix}${s} → ${e}${dur}`;
+    return `${prefix}${s} -> ${e}${dur}`; // "->" et non "→" : hors WinAnsi, jsPDF le rend en glyphe cassé (!')
   });
 }
 
@@ -3864,7 +3864,7 @@ async function ptgRapportExport() {
         _ptgFmtTime(r.heure_entree),
         _ptgFmtTime(r.heure_sortie),
         null, // badgeages — rendu à part (multi-lignes, police plus petite)
-        _ptgHM(nm) + (r.pause_legale_appliquee ? ' ⚖' : ''),
+        _ptgHM(nm) + (r.pause_legale_appliquee ? ' *' : ''), // même souci d'encodage que "->" ci-dessus, pas d'emoji dans le PDF
         { SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[r.statut] || r.statut,
       ];
       cx = ml;
@@ -3891,7 +3891,16 @@ async function ptgRapportExport() {
     doc.setTextColor(37, 99, 235);
     doc.text(`Total ${prenom} ${nom.toUpperCase()}`, ml + 4, y + 4.8);
     doc.text(_ptgHM(tot), ml + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] - 2, y + 4.8, { align: 'right' });
-    y += 13;
+    y += 5;
+    if (rows.some(r => r.pause_legale_appliquee)) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text('* pause conventionnelle de 20 min déduite automatiquement (aucune pause pointée, journée > 6h)', ml, y);
+      y += 8;
+    } else {
+      y += 5;
+    }
     if (y > 240) { doc.addPage(); y = 18; }
     doc.setDrawColor(226, 232, 240);
     doc.setFillColor(250, 251, 252);
