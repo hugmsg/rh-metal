@@ -4616,9 +4616,13 @@ function ptgControleExport() {
       const lbl = CONGE_TYPE_LABEL[d.conge.type] || d.conge.type;
       statutTxt = 'Congé';
       noteLines = [`Congé - ${lbl}${d.conge.motif ? ' - ' + d.conge.motif : ''}`];
-    } else if (d.hj) {
-      nm = _ptgItvMin(d.hj.duree_nette) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
-      statutTxt = { SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[d.hj.statut] || d.hj.statut;
+    } else if (d.hj || (d.corrections && d.corrections.length)) {
+      // Correction admin seule (jour jamais pointé mais des heures ajoutées à
+      // la main) traitée comme un jour travaillé — même correctif que
+      // _ptgControleDayCard (bug du 2026-08-19 : la correction s'affichait
+      // dans la grille/le détail mais ne comptait pas dans le total du PDF).
+      nm = (d.hj ? _ptgItvMin(d.hj.duree_nette) : 0) + d.corrections.reduce((s, c) => s + c.delta_min, 0);
+      statutTxt = d.hj ? ({ SORTI:'Sorti', EN_SERVICE:'En service', EN_PAUSE:'En pause', ANOMALIE:'Anomalie' }[d.hj.statut] || d.hj.statut) : 'Corrigé';
     } else if (d.statutJour) {
       statutTxt = d.statutJour.statut === 'ferie' ? 'Férié' : 'Non travaillé';
       noteLines = [statutTxt + ' (confirmé)'];
