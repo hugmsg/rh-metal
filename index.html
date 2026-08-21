@@ -832,8 +832,12 @@ body.kiosk-mode #ptg-kiosk-admin-note { display: none !important; }
         <button class="btn btn-ghost" onclick="document.getElementById('import-json-input').click()">⬆️ Importer sauvegarde (.json)</button>
         <input type="file" id="import-json-input" accept=".json" style="display:none" onchange="importJSON(this)">
       </div>
-      <p style="color:var(--muted);font-size:11px;margin-top:10px">
+      <p id="last-backup-info" style="font-size:11px;margin-top:10px;font-weight:600"></p>
+      <p style="color:var(--muted);font-size:11px;margin-top:4px">
         ℹ️ L'import remplace toutes les données actuelles. Faites un export avant d'importer.
+        Le plan Supabase de ce projet est <b>Free</b> — aucune sauvegarde automatique côté base
+        (ni PITR ni backup quotidien) : cet export est la seule sauvegarde. Un export mensuel est
+        recommandé (ne couvre pas les congés, uniquement en base Supabase).
       </p>
     </div>
 
@@ -2286,6 +2290,7 @@ function renderScenarios() {
 // RENDER SETTINGS
 // ═══════════════════════════════════════════
 function renderSettings() {
+  renderLastBackupInfo();
   document.getElementById('s-smic').value = settings.smic;
   document.getElementById('s-charges').value = settings.charges;
   document.getElementById('s-base-h').value = settings.baseH;
@@ -2901,6 +2906,28 @@ function exportJSON() {
   a.href = URL.createObjectURL(blob);
   a.download = 'rh-metal-backup-' + new Date().toISOString().slice(0,10) + '.json';
   a.click(); URL.revokeObjectURL(a.href);
+  localStorage.setItem('rh_last_backup_at', new Date().toISOString());
+  renderLastBackupInfo();
+}
+
+// Pas de backup automatique côté Supabase (plan Free — ni PITR ni backups
+// quotidiens, vérifié le 2026-08-21) : l'export JSON ci-dessus est la seule
+// sauvegarde. Un unique export réalisé le 17/06 était resté figé faute de
+// rappel — ce bandeau (Paramètres) rend la fraîcheur de la dernière
+// sauvegarde visible à chaque visite au lieu de compter sur la mémoire.
+function renderLastBackupInfo() {
+  const el = document.getElementById('last-backup-info');
+  if (!el) return;
+  const iso = localStorage.getItem('rh_last_backup_at');
+  if (!iso) {
+    el.innerHTML = '⚠️ Aucune sauvegarde JSON enregistrée sur cet appareil.';
+    el.style.color = 'var(--danger)';
+    return;
+  }
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  const dateTxt = new Date(iso).toLocaleDateString('fr-FR');
+  el.textContent = `Dernière sauvegarde : ${dateTxt} (il y a ${days} j${days > 1 ? 'ours' : ''})`;
+  el.style.color = days > 30 ? 'var(--danger)' : days > 14 ? 'var(--warn)' : 'var(--muted)';
 }
 
 function importJSON(input) {

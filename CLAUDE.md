@@ -51,6 +51,19 @@ Sauvegarde/restauration des salariés/paramètres/CCM via export/import JSON
 incrémenter si le format change) — **ne couvre pas** les congés (Supabase
 uniquement, pas de fallback local).
 
+**Stratégie de secours (vérifié le 2026-08-21)** : le plan Supabase de ce
+projet est **Free** — aucune sauvegarde automatique côté base (ni PITR ni
+backup quotidien, ces deux fonctionnalités n'existent qu'à partir du plan
+Pro). L'export JSON ci-dessus est donc la **seule** sauvegarde disponible
+pour salariés/paramètres/CCM — et rien ne sauvegarde les congés/pointages
+(uniquement en base, pas d'export). Un export unique du 17/06 était resté
+figé faute de rappel ; `renderLastBackupInfo()` (appelé par `renderSettings()`)
+affiche désormais "Dernière sauvegarde : il y a Xj" dans l'onglet
+Paramètres (`localStorage.rh_last_backup_at`, mis à jour à chaque
+`exportJSON()`), en rouge au-delà de 30 jours — export mensuel recommandé.
+Si le volume de données ou la criticité augmente, reconsidérer un passage
+au plan Pro (backups quotidiens inclus) plutôt que complexifier ce nudge.
+
 ### Table Supabase partagée `employes` — contrat avec sonotrad-pwa
 
 Voir mémoire `shared-employes-table-sonotrad-rhmetal` pour le détail complet.
