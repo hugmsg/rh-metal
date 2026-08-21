@@ -115,6 +115,9 @@ function mapSupabaseRowToEmployee(row) {
     taux_horaire: row.taux_horaire ?? 0,
     notes: row.notes || '',
     hasBadge: !!row.has_badge,
+    adresse: row.adresse || '',
+    telephone_perso: row.telephone_perso || '',
+    email_perso: row.email_perso || '',
   };
 }
 
@@ -134,6 +137,9 @@ async function pushEmployeeToSupabase(emp) {
     p_type_contrat: emp.type_contrat || null,
     p_poste: emp.poste || null,
     p_notes: emp.notes || null,
+    p_adresse: emp.adresse || null,
+    p_telephone_perso: emp.telephone_perso || null,
+    p_email_perso: emp.email_perso || null,
   });
   if (error || data?.ok === false) {
     ptgToast('⚠ Sync Supabase échouée : ' + (data?.message || error?.message || 'erreur inconnue'));
@@ -1127,10 +1133,13 @@ function openModal(id) {
     document.getElementById('f-hsup').value = e.heures_sup_semaine||0;
     document.getElementById('f-taux').value = e.taux_horaire||'';
     document.getElementById('f-notes').value = e.notes||'';
+    document.getElementById('f-adresse').value = e.adresse||'';
+    document.getElementById('f-tel-perso').value = e.telephone_perso||'';
+    document.getElementById('f-email-perso').value = e.email_perso||'';
   } else {
     document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
     document.getElementById('edit-id').value = '';
-    ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes'].forEach(id=>document.getElementById(id).value='');
+    ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes','f-adresse','f-tel-perso','f-email-perso'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-entree').value = new Date().toISOString().split('T')[0];
     document.getElementById('f-contrat').value = 'CDI';
     document.getElementById('f-classe').value = '1';
@@ -1221,6 +1230,9 @@ function saveEmployee() {
     heures_sup_semaine: parseFloat(document.getElementById('f-hsup').value)||0,
     taux_horaire: parseFloat(document.getElementById('f-taux').value)||0,
     notes: document.getElementById('f-notes').value.trim(),
+    adresse: document.getElementById('f-adresse').value.trim(),
+    telephone_perso: document.getElementById('f-tel-perso').value.trim(),
+    email_perso: document.getElementById('f-email-perso').value.trim(),
   };
   if (!emp.nom) { alert('Le nom est requis'); return; }
   if (id) {

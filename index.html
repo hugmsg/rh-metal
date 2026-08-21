@@ -643,6 +643,13 @@
     <div class="fg"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
     <div class="fg"><label>Notes / Observations</label><input id="f-notes" placeholder="Optionnel"></div>
 
+    <div class="fg full" style="margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
+      <label style="font-size:13px;font-weight:700">📍 Coordonnées personnelles <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
+    </div>
+    <div class="fg full"><label>Adresse postale</label><input id="f-adresse" placeholder="12 rue de l'Exemple, 75000 Paris"></div>
+    <div class="fg"><label>Téléphone personnel</label><input id="f-tel-perso" type="tel" placeholder="06 12 34 56 78"></div>
+    <div class="fg"><label>Email personnel</label><input id="f-email-perso" type="email" placeholder="jean.martin@exemple.fr"></div>
+
     <!-- Mini calcul inline -->
     <div class="mini-calc full" id="modal-calc">
       <div class="row"><span>Taux mini SMIC</span><span id="mc-smic">—</span></div>
