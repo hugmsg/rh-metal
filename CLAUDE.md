@@ -2,8 +2,9 @@
 
 ## C'est quoi
 
-PWA mono-fichier (HTML+CSS+JS dans `index.html`, pas de build, pas de
-framework, pas de `node_modules`) pour gérer l'équipe d'une entreprise relevant
+PWA sans build (`index.html`/`app.js`/`style.css` en HTML+CSS+JS servis
+tels quels, pas de framework, pas de `node_modules` — voir "Points
+d'attention" pour l'historique mono-fichier) pour gérer l'équipe d'une entreprise relevant
 de la **Convention Collective de la Métallurgie (IDCC 3248)**. Permet de
 suivre l'effectif, calculer les salaires/coûts employeur, vérifier la
 conformité aux minima de branche, simuler des scénarios RH, pointer les
@@ -15,9 +16,14 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 
 ## Fichiers
 
-- `index.html` — toute l'app (HTML + CSS + JS inline, un seul fichier)
+- `index.html` — structure HTML de l'app (markup des onglets/modales)
+- `app.js` — toute la logique JS de l'app (extrait de `index.html` le
+  2026-08-21 — toujours **pas de build** : simple `<script src="app.js">`,
+  Vercel sert le fichier tel quel comme avant)
+- `style.css` — tout le CSS (même extraction, `<link rel="stylesheet">`)
 - `manifest.json` — config PWA (nom, icône, thème)
-- `sw.js` — service worker (cache offline) — bumper la version si des assets cachés changent
+- `sw.js` — service worker (cache offline) — bumper `CACHE_NAME` si `app.js`,
+  `style.css` ou tout autre asset listé dans `SHELL`/`STATIC_ASSETS` change
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
 - `nfc-bridge/` — pont Python (lecteur PC/SC → Supabase Realtime Broadcast) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
@@ -47,7 +53,7 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 
 Le déploiement (git push / Vercel) ne touche jamais aux données utilisateur.
 Sauvegarde/restauration des salariés/paramètres/CCM via export/import JSON
-(`exportJSON()` / `importJSON()` dans `index.html`, `BACKUP_VERSION` à
+(`exportJSON()` / `importJSON()` dans `app.js`, `BACKUP_VERSION` à
 incrémenter si le format change) — **ne couvre pas** les congés (Supabase
 uniquement, pas de fallback local).
 
@@ -78,7 +84,11 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   prod une fois (régression corrigée le 2026-07-28).
 - **Clé de correspondance** : par `id` en priorité (`p_id` optionnel sur les
   RPC `upsert_employe_rh`/`upsert_employe_pointage`), comparaison nom/prénom
-  normalisée (casse+accents ignorés) en repli uniquement — jamais de
+  normalisée (casse+accents ignorés) en repli uniquement (`unaccent(lower(...))`
+  côté `upsert_employe_rh`, migration `20260821100838` — la fonction violait
+  cette règle depuis sa création le 2026-07-27 jusqu'à ce correctif, trouvé
+  lors d'un audit le 2026-08-21 ; `upsert_employe_pointage` côté sonotrad-pwa
+  a le même défaut, pas corrigé, autre repo) — jamais de
   comparaison stricte `ON CONFLICT (nom, prenom)` seule, source de doublons.
 - **Accès table** : RLS activé **sans aucune policy** sur `employes` (et
   `conges`) — tout accès direct (anon/authenticated) est refusé par défaut,
@@ -93,13 +103,13 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   payload minimal `{op, id}` sans donnée sensible). Les deux apps s'abonnent
   et rappellent `get_employes_rh()` au reçu d'un événement.
 
-## Logique métier clé (dans `index.html`)
+## Logique métier clé (dans `app.js`)
 
-- `DEFAULT_CCM` (~ligne 704) — grille des **18 classes CCM regroupées en 9
+- `DEFAULT_CCM` (~ligne 24) — grille des **18 classes CCM regroupées en 9
   groupes A→I**, avec SMH annuel/mensuel et taux horaire mini par classe.
   Source : UIMM / gestionsociale.fr, grille SMH 2024 toujours en vigueur en
   2026 (pas de revalorisation de branche signée en 2025 au moment de l'écriture).
-- `DEFAULT_SETTINGS` (~ligne 691) — SMIC horaire (12,31 € au 1er juin 2026),
+- `DEFAULT_SETTINGS` (~ligne 10) — SMIC horaire (12,31 € au 1er juin 2026),
   charges patronales (42%), base 151,67h/mois (35h), quota H.Sup, majorations
   25%/50%.
 - `getEffectiveMin(classeNum)` — le minimum légal réel = `max(taux CCM, SMIC)`
@@ -142,7 +152,7 @@ Points essentiels à connaître avant de toucher à ce périmètre :
 
 ### Module Pointage — Badge NFC (kiosque, 2026-07-30)
 
-Le kiosque Pointage (`_ptg*` dans `index.html`) gère désormais deux moyens
+Le kiosque Pointage (`_ptg*` dans `app.js`) gère désormais deux moyens
 d'identification, en coexistence sur le même écran : le PIN existant, et un
 badge NFC scanné sur un lecteur USB PC/SC (ACR122U) branché à un Raspberry
 Pi dédié.
@@ -239,7 +249,7 @@ Voir "Historique" ci-dessus pour le détail du bug (diagnostiqué le 2026-07-31,
 inutilisable en prod à cause du contenu mixte HTTPS/WS) et du correctif (bascule vers Supabase
 Realtime Broadcast, `emettre_signal_nfc`). Code réécrit le 2026-08-18 (migration
 `20260818000000_pointage_nfc_broadcast.sql`, `nfc-bridge/nfc_bridge.py`,
-`_ptgNfcConnect`/`_badgeListen` dans `index.html`, champ Réglages remplacé par une case à cocher),
+`_ptgNfcConnect`/`_badgeListen` dans `app.js`, champ Réglages remplacé par une case à cocher),
 **puis testé en conditions réelles le même jour avec un vrai badge ACR122U** : heartbeat reçu en
 local ET sur `https://rh-metal.vercel.app` (pastille "Lecteur connecté"), scan réel traité de bout
 en bout (ENTREE/SORTIE enregistrées) sur les deux environnements. **Chantier terminé.**
@@ -255,7 +265,7 @@ onglets simultanément abonnés (local + prod), une seule ligne créée après l
 ### Module Pointage — Kiosque simplifié, Rapports, Contrôle (2026-08-19)
 
 **Kiosque** : le sélecteur "Type de pointage" (PIN) ne propose plus que
-Entrée/Sortie (boutons Pause début/fin retirés, `index.html` ~ligne 885) —
+Entrée/Sortie (boutons Pause début/fin retirés, `index.html` ~ligne 476) —
 décision explicite de Hugo : en cas de départs/retours imprévus dans la
 journée, la notion de pause au pointage crée plus de problèmes qu'elle
 n'en résout. Le badge NFC ne gérait déjà que Entrée/Sortie (voir plus
@@ -280,16 +290,20 @@ avec légende à la place (glyphe cassé sinon, type `!'`).
 
 **Contrôle** (sous-onglet, nouveau) : répond au problème des jours
 oubliés (Rapports ne montre que les jours avec au moins un pointage).
-Deux écrans :
+Quatre écrans (`_ptgControle.mode` : `apercu`/`detail`/`mois`/`jour`,
+`_ptgControleReloadCurrent()` recharge celui affiché) :
 - **Aperçu mensuel** (accueil) : grille salariés × jours ouvrés du mois,
   inspirée d'un outil du prestataire actuel de Hugo (capture partagée en
-  session). Case vide = rien à signaler, code court sinon (CP/MAL/EVT/SS
-  depuis le module Congés, F=férié, **`!` rouge = jour ouvré passé sans
-  aucune résolution** — le signal recherché pour repérer les trous d'un
-  coup d'œil). Colonne "Sem." (total + 🔒 si verrouillée, encadrée des
-  deux côtés pour ne pas ressembler à un jour collé au lundi suivant)
-  après chaque semaine, colonne "Mois" à droite. Clic sur une semaine →
-  écran détail.
+  session, pas conservée dans le repo une fois la vue construite). Case
+  vide = rien à signaler, code court sinon (CP/MAL/EVT/SS depuis le module
+  Congés, F=férié, **`!` rouge = jour ouvré passé sans aucune résolution**
+  — le signal recherché pour repérer les trous d'un coup d'œil ; case
+  **verte avec le total en petit** si travaillé). Colonne "Sem." (total +
+  🔒 si verrouillée, encadrée des deux côtés, fond teinté accent pour ne
+  pas ressembler à un jour collé au lundi suivant) après chaque semaine,
+  colonne "Mois" à droite. Clic sur une semaine → écran détail ; **clic sur
+  le nom d'un salarié → écran mois** (ce salarié, tout le mois) ; **clic
+  sur une date en en-tête → écran jour** (tous les salariés, ce jour-là).
 - **Détail** (un salarié, une semaine, cartes lundi→vendredi) : pour un
   jour vide, actions "🏖 Férié" / "🗓 Congé" (ouvre `upsert_conge_rh` —
   remplace un ancien statut "Non travaillé" jugé trop vague et déconnecté
@@ -297,15 +311,36 @@ Deux écrans :
   une correction mais sans pointage réel s'affiche comme un jour travaillé
   (Arrivée/Départ à "—"), jamais comme "Rien pointé" — sinon la correction
   restait invisible et les boutons Férié/Congé restaient proposés à tort
-  sur un jour déjà traité (bug réel du 2026-08-19, corrigé). **Verrouillage
-  réel** : "☑ J'ai contrôlé — verrouiller cette semaine" (`valider_semaine`)
-  bloque ensuite côté serveur toute correction/pointage admin/statut
-  jour/congé qui chevauche cette semaine (`_semaine_est_verrouillee`,
-  vérifié dans `ajouter_correction_heures`, `admin_add_pointage`,
-  `definir_statut_jour`, `upsert_conge_rh`/`supprimer_conge_rh`) —
-  `deverrouiller_semaine` toujours disponible, bouton dédié. Une fois
-  verrouillée : export PDF dédié (même style que Rapports) + bouton
-  "Salarié suivant".
+  sur un jour déjà traité (bug réel du 2026-08-19, corrigé dans
+  `_ptgControleDayCard` **et** dans l'export PDF `ptgControleExport`, qui
+  avait le même bug en double). **Verrouillage réel** : "☑ J'ai contrôlé —
+  verrouiller cette semaine" (`valider_semaine`) bloque ensuite côté
+  serveur toute correction/pointage admin/statut jour/congé qui chevauche
+  cette semaine (`_semaine_est_verrouillee`, vérifié dans
+  `ajouter_correction_heures`, `admin_add_pointage`, `definir_statut_jour`,
+  `upsert_conge_rh`/`supprimer_conge_rh`) — `deverrouiller_semaine`
+  toujours disponible, bouton dédié. Une fois verrouillée : export PDF
+  dédié (même style que Rapports) + bouton "Salarié suivant".
+- **Mois** (un salarié, toutes les semaines du mois à la suite,
+  2026-08-21) : réutilise les cartes jour de la vue Détail, un bloc par
+  semaine (`_ptgControleWeekBlock`), chacun avec ses propres actions et
+  son propre verrouillage/PDF — pas de nouvel écran de saisie, juste
+  plusieurs semaines empilées. Accessible en cliquant le nom d'un salarié
+  dans l'aperçu mensuel.
+- **Jour** (tous les salariés, une date précise, 2026-08-21) : une carte
+  par salarié pour ce jour-là (même `_ptgControleDayCard`, titre remplacé
+  par le nom du salarié), avec un mini bouton 🔒/🔓 pour verrouiller/
+  déverrouiller la semaine de ce salarié directement depuis cette vue
+  transversale. **Piège évité à la conception** : la requête charge les
+  données de tous les salariés pour la date (pas de filtre `employe_id`
+  côté SQL) — sans filtrer par salarié avant de construire chaque carte,
+  la fonction de construction des dayRows (indexée par date seule)
+  aurait mélangé les pointages/corrections de tout le monde sur la même
+  clé.
+- Verrouillage/déverrouillage généralisés (`ptgControleValiderFor`/
+  `ptgControleDeverrouillerFor`, prennent employé+semaine en paramètre)
+  pour fonctionner depuis Mois/Jour, en plus de `ptgControleValider`/
+  `ptgControleDeverrouiller` (vue Détail, lisent `_ptgControle.data`).
 
 Nouvelles tables : `heures_corrections`, `jours_statut` (statut manuel —
 seul `'ferie'` est encore proposé dans l'UI ; `'non_travaille'` reste
@@ -322,7 +357,7 @@ dimanche). Utiliser `_ptgLocalDateStr(d)` (champs locaux du `Date`,
 jamais `toISOString()`) pour toute date-string dérivée d'un `Date` local
 dans le module Pointage — corrigé dans `_ptgRapportDates`,
 `_ptgControleSemaine`, `_ptgControleMoisInfo`, `_ptgMondayStr`,
-`_ptgTodayStr`. Le même piège subsiste ailleurs dans `index.html` — voir
+`_ptgTodayStr`. Le même piège subsiste ailleurs dans `app.js` — voir
 "Limitations connues".
 
 **Cadre légal vérifié (CCM IDCC 3248, recherche web du 2026-08-19)** : pas
@@ -350,7 +385,7 @@ besoin :
 - **Piège timezone résiduel** : `toISOString().slice(0,10)` décale d'un jour
   en arrière l'été en France (CEST = UTC+2) — corrigé partout dans le module
   Pointage via `_ptgLocalDateStr()` (voir plus haut), mais subsiste ailleurs
-  dans `index.html` (noms de fichiers export CSV/sauvegarde JSON, quelques
+  dans `app.js` (noms de fichiers export CSV/sauvegarde JSON, quelques
   dates par défaut, ex. `ptgAddModalShow`). Impact cosmétique seulement (le
   nom du fichier téléchargé) — pas corrigé faute de demande.
 
@@ -371,9 +406,10 @@ git commit -m "fix/feat: description"
 git push
 ```
 
-Tout est dans `index.html` : pour une modif, chercher la fonction JS ou la
-section HTML concernée directement dans ce fichier (pas de fichiers séparés
-à synchroniser).
+La logique JS est dans `app.js`, le markup dans `index.html`, le CSS dans
+`style.css` (extraits d'un seul `index.html` monolithique le 2026-08-21,
+voir "Points d'attention") : pour une modif, chercher la fonction ou la
+section directement dans le fichier concerné.
 
 ## Points d'attention
 
@@ -385,7 +421,19 @@ section HTML concernée directement dans ce fichier (pas de fichiers séparés
   stockés avec un champ `groupe` sans `classe_num`).
 - Le service worker (`sw.js`) doit être versionné/invalidé si on change des
   assets cachés, sinon les utilisateurs PWA restent sur une vieille version
-  (voir historique de fix "cache PWA").
+  (voir historique de fix "cache PWA"). `app.js`/`style.css` sont dans
+  `SHELL` (réseau-first, comme `index.html`) depuis leur extraction — pas
+  dans `STATIC_ASSETS` (cache-first), car ils changent à chaque déploiement.
+- **Historique mono-fichier (jusqu'au 2026-08-21)** : jusqu'à cette date,
+  tout (HTML+CSS+JS) vivait dans un seul `index.html` de ~5000 lignes —
+  choix initial pour la simplicité de déploiement (voir "C'est quoi").
+  Extrait en `app.js`/`style.css` le 2026-08-21 (audit RH-Metal, point
+  "fichier à surveiller") une fois la taille devenue gênante pour la
+  navigation/l'édition — **toujours sans build** : `<link>`/`<script src>`
+  classiques, Vercel sert les 3 fichiers tels quels comme avant. Les
+  références `~ligne N` dans ce document pointent désormais vers `app.js`
+  (logique) ou `index.html` (markup) selon le contexte — si un futur
+  découpage plus fin (plusieurs fichiers JS par module) a lieu, les revérifier.
 - Ne pas committer les fichiers `rh-metal-backup-*.json` (données RH réelles).
 - Ne jamais forcer `.toUpperCase()`/normaliser la casse du nom/prénom à la
   sauvegarde d'un salarié (voir convention de casse plus haut).
