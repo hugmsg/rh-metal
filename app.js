@@ -1912,11 +1912,13 @@ function _ptgShowFeedback(nom, prenom, type) {
   const el = document.getElementById('ptg-feedback');
   if (!el) return;
 
+  // ENTREE/SORTIE uniquement : le kiosque (PIN et badge) ne soumet plus que
+  // ces deux types depuis le 2026-08-19 — la pause reste possible mais
+  // seulement en correction manuelle admin (Suivi du jour > Ajouter), qui
+  // n'affiche jamais cet écran de feedback plein écran.
   const typeMeta = {
-    ENTREE:      { label: 'Entrée en service', icon: '✅' },
-    SORTIE:      { label: 'Sortie de service', icon: '👋' },
-    PAUSE_DEBUT: { label: 'Début de pause',    icon: '⏸' },
-    PAUSE_FIN:   { label: 'Fin de pause',      icon: '▶' },
+    ENTREE: { label: 'Entrée en service', icon: '✅' },
+    SORTIE: { label: 'Sortie de service', icon: '👋' },
   };
   const meta = typeMeta[type] || { label: type, icon: '✓' };
 
@@ -2131,10 +2133,9 @@ async function _ptgAdminLoad() {
     .select('statut')
     .eq('date', today);
 
-  const stats = { EN_SERVICE: 0, EN_PAUSE: 0, SORTI: 0 };
+  const stats = { EN_SERVICE: 0, SORTI: 0 };
   (hj || []).forEach(r => { if (stats[r.statut] !== undefined) stats[r.statut]++; });
   _ptgSetKpi('ptg-kpi-service', stats.EN_SERVICE);
-  _ptgSetKpi('ptg-kpi-pause',   stats.EN_PAUSE);
   _ptgSetKpi('ptg-kpi-sortis',  stats.SORTI);
   _ptgSetKpi('ptg-kpi-total',   (passages || []).filter(p => p.valide).length);
 
