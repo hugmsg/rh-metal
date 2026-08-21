@@ -197,6 +197,71 @@ function renderUnlinkedPtgAccounts() {
     </div>`).join('');
 }
 
+/* ─── Corbeille : salariés soft-deleted, purge définitive ─────────────── */
+
+let deletedEmployeesRh = [];
+let corbeilleLoaded = false;
+
+async function toggleCorbeille() {
+  const box = document.getElementById('corbeille-section');
+  if (!box) return;
+  const opening = box.style.display === 'none';
+  if (opening && !corbeilleLoaded) {
+    await loadCorbeille();
+    corbeilleLoaded = true;
+  }
+  box.style.display = opening ? 'block' : 'none';
+}
+
+async function loadCorbeille() {
+  const db = window.SupabaseDB;
+  const list = document.getElementById('corbeille-list');
+  if (!db || !list) return;
+  list.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px">Chargement…</div>';
+  const { data, error } = await db.rpc('get_employes_supprimes_rh');
+  if (error) {
+    list.innerHTML = `<div style="padding:12px;color:var(--danger);font-size:13px">Erreur : ${error.message}</div>`;
+    return;
+  }
+  deletedEmployeesRh = data || [];
+  renderCorbeille();
+}
+
+function renderCorbeille() {
+  const list = document.getElementById('corbeille-list');
+  if (!list) return;
+  if (!deletedEmployeesRh.length) {
+    list.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:13px">Corbeille vide.</div>';
+    return;
+  }
+  list.innerHTML = deletedEmployeesRh.map(e => {
+    const supprimeLe = e.updated_at ? new Date(e.updated_at).toLocaleDateString('fr-FR') : '?';
+    return `
+    <div class="card" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;padding:12px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:rgba(239,68,68,.15);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🗑</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;">${e.prenom || '(sans prénom)'} ${e.nom || '(sans nom)'}</div>
+        <div style="font-size:12px;color:var(--muted);">Supprimé le ${supprimeLe}${e.poste ? ' · ' + e.poste : ''}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="purgerEmploye('${e.id}','${String(e.prenom||'').replace(/'/g,"\\'")}','${String(e.nom||'').replace(/'/g,"\\'")}')">🗑️ Purger définitivement</button>
+    </div>`;
+  }).join('');
+}
+
+async function purgerEmploye(id, prenom, nom) {
+  if (!confirm(`Supprimer DÉFINITIVEMENT ${prenom} ${nom} ?\n\nIrréversible : efface aussi tout son historique (pointages, corrections, congés). Il ne restera aucune trace.`)) return;
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('purger_employe_rh', { p_id: id });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue'));
+    return;
+  }
+  ptgToast(`✓ ${prenom} ${nom} purgé définitivement`);
+  deletedEmployeesRh = deletedEmployeesRh.filter(e => e.id !== id);
+  renderCorbeille();
+}
+
 async function importEmployeesToSupabase() {
   const db = window.SupabaseDB;
   if (!db) { ptgToast('Supabase non configuré'); return; }
