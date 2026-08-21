@@ -104,6 +104,17 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   (`realtime.send()` dans un trigger, canal public `employes-changes`,
   payload minimal `{op, id}` sans donnée sensible). Les deux apps s'abonnent
   et rappellent `get_employes_rh()` au reçu d'un événement.
+- **Éligibilité au pointage = condition calculée, pas le seul flag `actif`**
+  (corrigé le 2026-08-21, migration `20260821152633`, suite à un cas réel :
+  Anaïs Breteau, CDD terminé le 31/07, pouvait encore badger 3 semaines
+  après faute d'avoir `actif=false`). `authentifier_par_pin`,
+  `pointer_par_nfc` et `employes_actifs_vue` filtrent désormais sur
+  `actif = true AND supprime = false AND (date_sortie IS NULL OR
+  date_sortie >= current_date)` — jamais `actif` seul. Avantage : un
+  renouvellement de CDD, un passage en CDI ou une reprise saisonnière se
+  traite en changeant juste `date_sortie` côté fiche RH, sans rien
+  réactiver manuellement (PIN/badge/coordonnées jamais touchés). RPC
+  partagées avec sonotrad-pwa — corrige le même trou côté leur kiosque.
 
 ### Phase 3 SIRH — Profils complets & portail salarié
 
