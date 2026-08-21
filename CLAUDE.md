@@ -126,6 +126,21 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   pointage). Désactiver ce compte-là reste manuel et non destructif
   (`_toggleUser` ne touche jamais le PIN) — amélioration envisagée mais
   pas commencée : documentée dans `sonotrad-scripts/CLAUDE.md`.
+- **Corbeille + purge définitive** (2026-08-21, migration
+  `20260821160641`) : `supprimer_employe_rh` ne faisait qu'un soft-delete
+  (`supprime=true`) — un salarié supprimé devenait invisible dans Équipe
+  (`get_employes_rh` filtre `supprime=false`) mais restait bien réel en
+  base, sans aucun moyen depuis l'app de finir le nettoyage (cas réel :
+  2 comptes "test" trouvés uniquement visibles dans Contrôle, sans trace
+  côté Équipe). Ajout de `get_employes_supprimes_rh()` (liste les
+  `supprime=true`, section "🗑 Corbeille" dans Équipe, chargée à la
+  demande) et `purger_employe_rh(p_id)` — refuse tout salarié pas déjà
+  dans la corbeille (garde-fou anti-purge-directe d'un actif), puis
+  nettoie explicitement `heures_corrections`/`jours_statut`/
+  `semaines_validees`/`heures_journalieres`/`pointages`/`conges` avant de
+  supprimer la ligne `employes` (ne dépend pas des FK `employe_id`
+  incohérentes en base — voir migration pour le détail). Irréversible,
+  confirmation explicite côté UI.
 
 ### Phase 3 SIRH — Profils complets & portail salarié
 
