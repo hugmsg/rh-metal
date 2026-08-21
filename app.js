@@ -1783,6 +1783,7 @@ function ptgShowSubView(view) {
   document.getElementById('view-ptg-rapport').classList.toggle('active', view === 'rapport');
   document.getElementById('view-ptg-controle').classList.toggle('active', view === 'controle');
   document.querySelectorAll('.ptg-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.ptgview === view));
+  _ptgSubscribeRealtime();
   if (view === 'kiosk')    ptgInit();
   if (view === 'admin')    ptgAdminInit();
   if (view === 'rapport')  ptgRapportInit();
@@ -1803,7 +1804,6 @@ function ptgInit() {
   _ptgMsg('');
   ptgSelectType('ENTREE');
   _ptgLoadEnService();
-  _ptgSubscribeRealtime();
   _ptgNfcConnect();
 }
 
@@ -1983,6 +1983,15 @@ async function _ptgLoadEnService() {
   }).join('');
 }
 
+// Un seul canal Supabase Realtime partagé entre les 4 sous-onglets Pointage
+// (kiosk/admin/rapport/controle) — réabonné à chaque changement de
+// sous-onglet (ptgShowSubView). Écoute les tables qui peuvent changer "de
+// l'extérieur" (badge NFC ou PIN sur le kiosque, correction admin sur un
+// autre poste) et relance le rechargement de la vue actuellement affichée.
+// Avant le 2026-08-22, seuls Kiosque et Suivi du jour avaient cet
+// abonnement (deux fonctions séparées, ptg-hj-kiosk/ptg-hj-admin) —
+// Rapports et Contrôle nécessitaient de ressortir/revenir ou d'actualiser
+// pour voir un badgeage récent.
 function _ptgSubscribeRealtime() {
   const db = window.SupabaseDB;
   if (!db) return;
@@ -1990,11 +1999,25 @@ function _ptgSubscribeRealtime() {
     db.removeChannel(_ptg.realtimeSub);
     _ptg.realtimeSub = null;
   }
+  const onChange = () => {
+    if (_ptgSubView === 'kiosk') _ptgLoadEnService();
+    if (_ptgSubView === 'admin') { _ptgAdminLoad(); _ptgAlertesLoad(); }
+    if (_ptgSubView === 'rapport') _ptgRapportLoad();
+    if (_ptgSubView === 'controle') {
+      // Ne pas recharger sous le pied de l'admin s'il a une fenêtre de
+      // correction/congé ouverte — perdrait sa saisie en cours et sa
+      // position (bug potentiel évité à la demande de Hugo, 2026-08-22).
+      const modalOpen = document.getElementById('ptg-correction-modal')?.style.display === 'flex'
+        || document.getElementById('ptg-conge-modal')?.style.display === 'flex';
+      if (!modalOpen) _ptgControleReloadCurrent();
+    }
+  };
   _ptg.realtimeSub = db
-    .channel('ptg-hj-kiosk')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'heures_journalieres' }, () => {
-      _ptgLoadEnService();
-    })
+    .channel('ptg-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'heures_journalieres' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'heures_corrections' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'jours_statut' }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'semaines_validees' }, onChange)
     .subscribe();
 }
 
@@ -2078,7 +2101,6 @@ async function ptgAdminInit() {
   });
   await _ptgAdminLoad();
   _ptgAlertesLoad();
-  _ptgAdminSubscribe();
 }
 
 async function ptgAdminRefresh() {
@@ -2269,21 +2291,6 @@ async function _ptgAlertesLoad() {
     el.innerHTML = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:10px;
       padding:8px 12px;font-size:12px;color:var(--danger)">Erreur alertes : ${err.message}</div>`;
   }
-}
-
-function _ptgAdminSubscribe() {
-  const db = window.SupabaseDB;
-  if (!db) return;
-  if (_ptg.realtimeSub) {
-    db.removeChannel(_ptg.realtimeSub);
-  }
-  _ptg.realtimeSub = db
-    .channel('ptg-hj-admin')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'heures_journalieres' }, () => {
-      if (_ptgSubView === 'admin') { _ptgAdminLoad(); _ptgAlertesLoad(); }
-      if (_ptgSubView === 'kiosk') _ptgLoadEnService();
-    })
-    .subscribe();
 }
 
 /* ─── Pointage — Corrections admin ────────────────────────────────────── */
