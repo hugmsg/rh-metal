@@ -367,6 +367,34 @@ absence future" — seulement une modulation pluriannuelle formelle
 corrections/Contrôle en pur suivi interne, sans requalification
 automatique en heures supplémentaires ni valeur légale.
 
+**Rafraîchissement live généralisé (2026-08-21)** : un seul canal Supabase
+Realtime (`ptg-realtime`, `_ptgSubscribeRealtime()` dans `app.js`, appelé
+depuis `ptgShowSubView()` à chaque changement de sous-onglet) écoute
+`heures_journalieres`/`heures_corrections`/`jours_statut`/`semaines_validees`
+et relance le rechargement du sous-onglet Pointage actuellement affiché —
+les 4 (Kiosque/Suivi du jour/Rapports/Contrôle) sont désormais concernés,
+avant seuls Kiosque et Suivi du jour l'étaient. Pour Contrôle, le
+rechargement live est **ignoré** tant qu'une fenêtre Corriger/Congé est
+ouverte (`#ptg-correction-modal`/`#ptg-conge-modal` visibles), pour ne pas
+perdre une saisie en cours ni la position à l'écran.
+
+**Bug racine trouvé en vérifiant que ça marchait vraiment** : aucune table
+du module Pointage n'était dans la publication `supabase_realtime` (seule
+`voyages`, sans rapport, y était) — RLS correct (policy `anon` SELECT sur
+les 4 tables) mais sans la publication, `postgres_changes` ne part jamais.
+**Les abonnements Realtime déjà existants sur `heures_journalieres`
+(Kiosque, Suivi du jour, depuis leur création) n'ont donc jamais réellement
+déclenché** : le rafraîchissement observé après un scan/PIN venait
+uniquement de `_ptgShowFeedback()` rappelant `_ptgLoadEnService()`
+directement côté client, sur le même poste — jamais de Supabase Realtime.
+Corrigé par la migration `20260821125311` (`ALTER PUBLICATION
+supabase_realtime ADD TABLE ...` sur les 4 tables). Vérifié en prod par un
+test direct (écriture/suppression SQL pendant qu'un onglet Contrôle était
+ouvert sans y toucher — la cellule s'est mise à jour toute seule dans les
+deux sens). **Si un futur ajout Realtime sur une table Pointage/RH semble
+ne "rien faire"**, vérifier d'abord `pg_publication_tables` avant de
+suspecter le code client — c'est passé inaperçu pendant ~3 semaines ici.
+
 ## Limitations connues
 
 Comportements volontairement non gérés ou pas encore corrigés partout — pas

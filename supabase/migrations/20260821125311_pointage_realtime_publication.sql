@@ -6,7 +6,7 @@
 -- _ptgShowFeedback dans app.js). RLS déjà correct (policy anon SELECT sur
 -- les 4 tables) — il ne manquait que la publication.
 --
--- Découvert le 2026-08-22 en câblant le rafraîchissement live de
+-- Découvert le 2026-08-21 en câblant le rafraîchissement live de
 -- Rapports/Contrôle (qui n'avaient encore aucun abonnement) : seule
 -- `voyages` (repo sonotrad-scripts, sans rapport) était dans la
 -- publication `supabase_realtime` avant ce correctif.
