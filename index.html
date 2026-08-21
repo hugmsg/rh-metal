@@ -4294,25 +4294,32 @@ function _ptgControleApercuRender() {
   const ap = _ptgControle.apercu;
   const employees = _ptgControle.employees;
 
+  // Même vocabulaire visuel que le tableau Rapports (carte + ombre, lignes
+  // zébrées, tailles de police cohérentes) — la grille avait été construite
+  // avec des tailles éparpillées (8.5 à 11px) et aucune alternance de
+  // lignes, ce qui la faisait paraître "artisanale" à côté de Rapports
+  // (retour de Hugo le 2026-08-21).
   const bgByKind = {
     conge: 'rgba(59,130,246,.15)', ferie: 'rgba(59,130,246,.1)', alerte: 'rgba(239,68,68,.22)',
-    travaille: 'rgba(16,185,129,.14)', non_travaille: 'transparent', futur: 'transparent',
+    travaille: 'rgba(16,185,129,.14)', non_travaille: '', futur: '',
   };
   const colorByKind = { alerte: '#ef4444', conge: '#3b82f6', ferie: '#3b82f6' };
-  const weekBorder = 'border-left:2px solid var(--border);border-right:2px solid var(--border)';
+  const semBg  = 'rgba(124,108,248,.06)';
+  const semBorder = `border-left:1px solid rgba(124,108,248,.25);border-right:1px solid rgba(124,108,248,.25)`;
 
   let theadDays = '';
   ap.weeks.forEach(w => {
     w.days.forEach(date => {
       const d = new Date(date + 'T00:00:00');
-      theadDays += `<th style="padding:4px 3px;font-size:9px;color:var(--muted);font-weight:600;min-width:26px">${d.toLocaleDateString('fr-FR', { weekday: 'short' })}<br>${d.getDate()}</th>`;
+      theadDays += `<th style="padding:6px 4px;font-size:10px;color:var(--muted);font-weight:600;min-width:30px">${d.toLocaleDateString('fr-FR', { weekday: 'short' })}<br>${d.getDate()}</th>`;
     });
-    theadDays += `<th style="padding:4px 4px;font-size:9px;color:var(--muted);font-weight:700;min-width:38px;${weekBorder};background:var(--surface2)">Sem.</th>`;
+    theadDays += `<th style="padding:6px 4px;font-size:10px;color:var(--accent);font-weight:700;min-width:42px;${semBorder};background:${semBg}">Sem.</th>`;
   });
-  theadDays += `<th style="padding:4px 6px;font-size:9px;color:var(--muted);font-weight:700;min-width:48px;border-left:2px solid var(--border)">Mois</th>`;
+  theadDays += `<th style="padding:6px 8px;font-size:10px;color:var(--muted);font-weight:700;min-width:52px;border-left:2px solid var(--border)">Mois</th>`;
 
-  const rows = employees.map(emp => {
-    let rowHtml = `<td style="padding:5px 8px;font-size:12px;font-weight:600;white-space:nowrap;position:sticky;left:0;background:var(--surface)">${emp.prenom} ${emp.nom.toUpperCase()}</td>`;
+  const rows = employees.map((emp, i) => {
+    const rowBg = i % 2 ? 'var(--surface2)' : 'var(--surface)';
+    let rowHtml = `<td style="padding:6px 10px;font-size:12px;font-weight:600;white-space:nowrap;position:sticky;left:0;background:${rowBg}">${emp.prenom} ${emp.nom.toUpperCase()}</td>`;
     let moisTotal = 0;
     ap.weeks.forEach(w => {
       let weekTotal = 0;
@@ -4324,37 +4331,40 @@ function _ptgControleApercuRender() {
         const nm   = (hj ? _ptgItvMin(hj.duree_nette) : 0) + corr.reduce((s, c) => s + c.delta_min, 0);
         weekTotal += nm;
         const cellTxt = info.kind === 'travaille'
-          ? `<span style="font-size:8.5px;font-weight:600;opacity:.8">${_ptgHM(nm)}</span>`
-          : info.code;
+          ? `<span style="font-size:9px;font-weight:600;opacity:.75">${_ptgHM(nm)}</span>`
+          : `<span style="font-size:11px">${info.code}</span>`;
         rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')" title="${_ptgFmtDate(date)}"
-          style="cursor:pointer;text-align:center;padding:5px 2px;font-size:10px;font-weight:700;background:${bgByKind[info.kind]};color:${colorByKind[info.kind] || 'var(--text)'}">${cellTxt}</td>`;
+          style="cursor:pointer;text-align:center;padding:6px 3px;font-weight:700;background:${bgByKind[info.kind] || rowBg};color:${colorByKind[info.kind] || 'var(--text)'}">${cellTxt}</td>`;
       });
       moisTotal += weekTotal;
       const lock = ap.lockByKey.get(`${emp.id}|${w.semaineDebut}`);
       rowHtml += `<td onclick="ptgControleOuvrirSemaine('${emp.id}','${w.semaineDebut}')"
-        style="cursor:pointer;text-align:center;padding:5px 3px;font-size:10px;font-weight:700;${weekBorder};background:${lock ? 'rgba(16,185,129,.12)' : 'var(--surface2)'}">${lock ? '🔒' : ''} ${_ptgHM(weekTotal)}</td>`;
+        style="cursor:pointer;text-align:center;padding:6px 4px;font-size:10.5px;font-weight:700;color:var(--accent);${semBorder};background:${lock ? 'rgba(16,185,129,.14)' : semBg}">${lock ? '🔒 ' : ''}${_ptgHM(weekTotal)}</td>`;
     });
-    rowHtml += `<td style="text-align:right;padding:5px 6px;font-size:12px;font-weight:800;border-left:2px solid var(--border)">${_ptgHM(moisTotal)}</td>`;
-    return `<tr style="border-bottom:1px solid var(--border)">${rowHtml}</tr>`;
+    rowHtml += `<td style="text-align:right;padding:6px 10px;font-size:12px;font-weight:800;border-left:2px solid var(--border);background:${rowBg}">${_ptgHM(moisTotal)}</td>`;
+    return `<tr>${rowHtml}</tr>`;
   }).join('');
 
   content.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px">
-      <button onclick="ptgControleApercuNav(-1)" class="btn btn-ghost btn-sm">←</button>
-      <span style="font-size:14px;font-weight:700">${ap.label}</span>
-      <button onclick="ptgControleApercuNav(1)" class="btn btn-ghost btn-sm">→</button>
-    </div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px">
-      <table style="border-collapse:collapse;font-size:11px;white-space:nowrap;width:100%">
-        <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
-          <th style="padding:5px 8px;text-align:left;color:var(--muted);font-weight:600;position:sticky;left:0;background:var(--surface2)">Salarié</th>
-          ${theadDays}
-        </tr></thead>
-        <tbody>${rows || `<tr><td style="padding:20px;color:var(--muted);font-size:13px">Aucun salarié actif</td></tr>`}</tbody>
-      </table>
+    <div style="border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.2)">
+      <div style="background:var(--surface3);padding:9px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <button onclick="ptgControleApercuNav(-1)" class="btn btn-ghost btn-sm">←</button>
+        <span style="font-size:14px;font-weight:700">${ap.label}</span>
+        <button onclick="ptgControleApercuNav(1)" class="btn btn-ghost btn-sm">→</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="border-collapse:collapse;font-size:11px;white-space:nowrap;width:100%">
+          <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">
+            <th style="padding:6px 10px;text-align:left;color:var(--muted);font-weight:600;position:sticky;left:0;background:var(--surface2)">Salarié</th>
+            ${theadDays}
+          </tr></thead>
+          <tbody>${rows || `<tr><td style="padding:20px;color:var(--muted);font-size:13px">Aucun salarié actif</td></tr>`}</tbody>
+        </table>
+      </div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap">
       <span><span style="display:inline-block;width:10px;height:10px;background:rgba(239,68,68,.35);border-radius:2px;vertical-align:middle"></span> à vérifier (rien pointé)</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(16,185,129,.3);border-radius:2px;vertical-align:middle"></span> travaillé</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:rgba(59,130,246,.2);border-radius:2px;vertical-align:middle"></span> congé / férié</span>
       <span>🔒 semaine verrouillée</span>
       <span>Clique une semaine pour l'ouvrir en détail</span>
