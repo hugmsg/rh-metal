@@ -115,6 +115,17 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   traite en changeant juste `date_sortie` côté fiche RH, sans rien
   réactiver manuellement (PIN/badge/coordonnées jamais touchés). RPC
   partagées avec sonotrad-pwa — corrige le même trou côté leur kiosque.
+- **Distinct du compte "Sonotrad-Utilisateurs"** (connexion à l'appli
+  sonotrad-pwa elle-même — logistique/stock/BCB/LOXAM, onglet
+  Administration) : ce compte-là vit dans une feuille Google Sheets
+  séparée (`sonotrad-scripts/masterfile/pwa_master.js`), reliée à
+  `employes` seulement via `employeId` pour affichage, **sans aucune
+  synchro** avec `date_sortie`/`actif`. Vérifié le 2026-08-21 (cas Anaïs
+  Breteau : contrat terminé mais toujours "activé" côté Administration,
+  malgré le correctif ci-dessus qui ne concerne que le badge/PIN de
+  pointage). Désactiver ce compte-là reste manuel et non destructif
+  (`_toggleUser` ne touche jamais le PIN) — amélioration envisagée mais
+  pas commencée : documentée dans `sonotrad-scripts/CLAUDE.md`.
 
 ### Phase 3 SIRH — Profils complets & portail salarié
 
