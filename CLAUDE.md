@@ -77,7 +77,9 @@ Points essentiels à connaître avant de toucher à ce périmètre :
 
 - **Division des colonnes** : sonotrad-pwa possède `pin_hash`/`nfc_uid`/`actif`
   (kiosque Pointage) ; rh-metal possède `classe_num`/`taux_horaire`/`heures_semaine`/
-  `heures_sup_semaine`/`date_entree`/`date_sortie`/`type_contrat`/`poste`/`notes`/`supprime`.
+  `heures_sup_semaine`/`date_entree`/`date_sortie`/`type_contrat`/`poste`/`notes`/`supprime`/
+  `adresse`/`telephone_perso`/`email_perso` (coordonnées personnelles, ajoutées le
+  2026-08-21, Phase 3 "profils complets" — voir plus bas).
 - **Casse/accents** : convention retenue = **casse normale + accents** (ex.
   "Breteau"/"Anaïs"), pas de TOUT-MAJUSCULE. `saveEmployee()` ne doit **jamais**
   forcer `.toUpperCase()` sur le nom — ça a déjà cassé une donnée réelle en
@@ -102,6 +104,29 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   (`realtime.send()` dans un trigger, canal public `employes-changes`,
   payload minimal `{op, id}` sans donnée sensible). Les deux apps s'abonnent
   et rappellent `get_employes_rh()` au reçu d'un événement.
+
+### Phase 3 SIRH — Profils complets & portail salarié
+
+**Profils complets, 1ère étape (2026-08-21) — coordonnées personnelles.**
+Section dédiée dans la modale Équipe (`f-adresse`/`f-tel-perso`/
+`f-email-perso`), optionnelle, jamais affichée dans le tableau/les cartes
+de l'onglet (comme `notes`, modale uniquement). Étapes suivantes possibles
+si le besoin se confirme : contact d'urgence (pas retenu pour l'instant),
+documents RH — contrat/RIB/pièce d'identité (le plan Supabase Free offre
+1 Go de stockage fichiers, largement suffisant pour cette taille d'équipe,
+donc le coût de stockage n'est pas un frein ; ce qui reste à concevoir
+avant de les ajouter, c'est le contrôle d'accès — bucket + policies RLS
+sur `storage.objects` — un chantier à part, pas juste des colonnes texte).
+
+**Portail salarié — cadré mais pas commencé.** Décisions prises le
+2026-08-21 pour quand ce chantier démarrera : authentification par email +
+mot de passe (Supabase Auth, pas de réutilisation du PIN kiosque — trop
+faible pour protéger des données personnelles) ; le salarié pourrait
+consulter ses propres pointages, consulter son solde de congés, et poser
+une demande de congé (romprait le modèle actuel "saisie RH uniquement" du
+module Congés, voir plus bas — nécessitera un flux de validation RH).
+Priorisé après les profils complets (plus petit chantier, aucune
+authentification à concevoir).
 
 ## Logique métier clé (dans `app.js`)
 
@@ -147,8 +172,8 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   `evenement_familial` (avec champ `motif` libre), `sans_solde` — ces 3
   derniers sont juste **déclarés** (dates + jours), pas de solde à calculer.
 - Pas de demande côté salarié pour l'instant (choix explicite) — saisie
-  RH uniquement dans cet onglet. Un futur portail salarié (Phase 3, pas
-  commencé) pourrait changer ça — voir mémoire `project-supabase-migration`.
+  RH uniquement dans cet onglet. Un futur portail salarié (cadré mais pas
+  commencé, voir section "Phase 3 SIRH" plus haut) pourrait changer ça.
 
 ### Module Pointage — Badge NFC (kiosque, 2026-07-30)
 
