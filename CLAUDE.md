@@ -127,15 +127,12 @@ Points essentiels à connaître avant de toucher à ce périmètre :
 
 - `countJoursOuvres(debut, fin)` — décompte lundi-vendredi inclus (convention
   **jours ouvrés**, pas jours ouvrables — choix explicite de l'utilisateur).
-  Ne déduit **pas** les jours fériés (pas de calendrier géré) — limitation
-  connue, à corriger manuellement si un congé chevauche un férié.
+  Ne déduit pas les jours fériés — voir "Limitations connues".
 - `getCpPeriod()` — période de référence légale CP : 1er juin N-1 → 31 mai N.
 - `calcSoldeCP(emp)` — acquisition **25j ouvrés/an** (équivalent légal des
   30j ouvrables), au prorata du temps de présence depuis `date_entree` dans
-  la période en cours, moins les CP déjà pris sur la période. Limitation
-  connue : n'exclut pas du calcul d'acquisition les longues absences
-  maladie/sans solde (l'acquisition légale réelle peut différer dans ce cas
-  au-delà d'un certain seuil — à ajuster manuellement si besoin).
+  la période en cours, moins les CP déjà pris sur la période — voir
+  "Limitations connues" (absences longues non exclues du calcul).
 - 4 types de congé : `cp` (avec solde/acquisition), `maladie`,
   `evenement_familial` (avec champ `motif` libre), `sans_solde` — ces 3
   derniers sont juste **déclarés** (dates + jours), pas de solde à calculer.
@@ -325,10 +322,8 @@ dimanche). Utiliser `_ptgLocalDateStr(d)` (champs locaux du `Date`,
 jamais `toISOString()`) pour toute date-string dérivée d'un `Date` local
 dans le module Pointage — corrigé dans `_ptgRapportDates`,
 `_ptgControleSemaine`, `_ptgControleMoisInfo`, `_ptgMondayStr`,
-`_ptgTodayStr`. **Le même piège existe encore ailleurs dans `index.html`**
-(noms de fichiers export CSV/sauvegarde JSON, quelques dates par défaut,
-ex. `ptgAddModalShow`) — laissé tel quel, impact cosmétique seulement
-là-bas (juste le nom du fichier téléchargé), pas corrigé faute de demande.
+`_ptgTodayStr`. Le même piège subsiste ailleurs dans `index.html` — voir
+"Limitations connues".
 
 **Cadre légal vérifié (CCM IDCC 3248, recherche web du 2026-08-19)** : pas
 de dispositif individuel pour "faire des heures pour compenser une
@@ -337,9 +332,27 @@ absence future" — seulement une modulation pluriannuelle formelle
 corrections/Contrôle en pur suivi interne, sans requalification
 automatique en heures supplémentaires ni valeur légale.
 
-**Limitation connue** : Rapports ne liste toujours que les jours ayant au
-moins une ligne `heures_journalieres` — pour un jour totalement vide
-(rien pointé, jamais résolu), utiliser Contrôle plutôt que Rapports.
+## Limitations connues
+
+Comportements volontairement non gérés ou pas encore corrigés partout — pas
+des bugs, mais à garder en tête et à ajuster manuellement au cas par cas si
+besoin :
+
+- **`countJoursOuvres(debut, fin)`** (module Congés) ne déduit pas les jours
+  fériés (pas de calendrier géré) — si un congé chevauche un férié, ajuster
+  le nombre de jours manuellement.
+- **`calcSoldeCP(emp)`** (module Congés) n'exclut pas du calcul d'acquisition
+  les longues absences maladie/sans solde — l'acquisition légale réelle peut
+  différer au-delà d'un certain seuil, à ajuster manuellement si besoin.
+- **Rapports** (Pointage) ne liste que les jours ayant au moins une ligne
+  `heures_journalieres` — un jour totalement vide (rien pointé, jamais
+  résolu) n'y apparaît pas ; utiliser Contrôle pour ces cas.
+- **Piège timezone résiduel** : `toISOString().slice(0,10)` décale d'un jour
+  en arrière l'été en France (CEST = UTC+2) — corrigé partout dans le module
+  Pointage via `_ptgLocalDateStr()` (voir plus haut), mais subsiste ailleurs
+  dans `index.html` (noms de fichiers export CSV/sauvegarde JSON, quelques
+  dates par défaut, ex. `ptgAddModalShow`). Impact cosmétique seulement (le
+  nom du fichier téléchargé) — pas corrigé faute de demande.
 
 ## Déploiement
 
