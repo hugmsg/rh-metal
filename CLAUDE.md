@@ -149,10 +149,66 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   Supabase de plus) affiche un bandeau rouge listant les salariés dont
   `date_sortie` est passée mais toujours présents dans Équipe (pas encore
   archivés via la Corbeille), avec un bouton "Traiter" qui ouvre directement
-  leur fiche (`openModal`) pour renouveler (reculer/effacer `date_sortie`),
-  passer en CDI, ou supprimer si la fin est définitive. Colonne "Sortie" :
-  une date passée s'affiche en rouge gras avec ⛔, une date future reste en
-  gris neutre (avant : les deux étaient rendues identiquement en rouge).
+  le formulaire "Nouveau contrat" (voir section dédiée ci-dessous) pour
+  renouveler, passer en CDI, ou — supprimer si la fin est définitive (via
+  la Corbeille, pas depuis ce bandeau). Colonne "Sortie" : une date passée
+  s'affiche en rouge gras avec ⛔, une date future reste en gris neutre
+  (avant : les deux étaient rendues identiquement en rouge).
+
+### Historique des contrats (2026-08-24)
+
+Jusqu'ici un renouvellement de CDD ou un passage en CDI se traitait en
+écrasant `date_sortie` sur `employes` — pas d'historique, et le même geste
+servait aussi bien à corriger une date qu'à changer réellement de contrat
+(cadré avec Hugo avant de coder, cf. le cas concret Breteau discuté pour le
+chantier éligibilité ci-dessus).
+
+**Table `contrats`** (rh-metal uniquement, pas partagée avec sonotrad-pwa) :
+`id, employe_id, date_debut, date_fin (NULL = en cours), type_contrat,
+classe_num, taux_horaire, heures_semaine, heures_sup_semaine, poste,
+forfait_jour, forfait_jours_an, created_at`. Même pattern RLS que
+`employes`/`conges` (activé, aucune policy — accès uniquement via RPC
+`SECURITY DEFINER`). `forfait_jour`/`forfait_jours_an` : colonnes réservées
+sur demande explicite de Hugo, **calcul de paie associé pas implémenté** —
+aucun salarié actuel n'est au forfait jour (modèle heures/semaine partout).
+
+**Synchronisation vers `employes`** : un trigger (`sync_employe_depuis_contrats`,
+`AFTER INSERT OR UPDATE OR DELETE ON contrats`) recopie le "contrat courant"
+(celui dont `date_debut` est la plus récente) sur les colonnes
+correspondantes de `employes` à chaque changement. `employes` reste donc la
+seule table lue ailleurs dans l'app (paie, dashboard, RPC de pointage
+partagées avec sonotrad-pwa) — rien d'autre à modifier côté lecture.
+**Exception : `date_entree`** n'est pas la date du contrat courant mais le
+**MIN(date_debut)** sur tout l'historique (ancienneté réelle) — sinon un
+renouvellement casserait le prorata de `calcSoldeCP` (module Congés).
+
+**Deux façons de faire évoluer un contrat**, distinguées explicitement pour
+ne pas reproduire l'ambiguïté qui a causé le bug Breteau :
+- **✏️ Modifier** (fiche existante) → `upsert_employe_rh` met à jour le
+  contrat courant **en place** (classe, taux, heures, poste, type, et
+  `date_sortie` pour clôturer/corriger la fin — jamais `date_entree`, plus
+  pris en compte dès qu'un contrat existe). Pour une augmentation, un
+  changement de classe/poste : **pas** un nouvel événement contractuel,
+  aucune nouvelle ligne. `date_entree` devient en lecture seule dans la
+  modale dès qu'un salarié a un id réel (ancienneté gérée uniquement par le
+  trigger) — éditable seulement à la création (1er contrat).
+- **🔄 Nouveau contrat** (icône dédiée sur chaque ligne Équipe, bouton dans
+  la modale, et bouton "Traiter" du bandeau contrats expirés) →
+  `upsert_contrat_rh` **insère toujours une nouvelle ligne** ; l'ancien
+  contrat reste intact dans l'historique. C'est le seul chemin pour un
+  vrai renouvellement, un passage CDD→CDI, ou une reprise saisonnière.
+
+`get_contrats_rh(p_employe_id)` alimente la section "📄 Historique des
+contrats" de la modale (le plus récent en premier, "Actuel" sur la 1ère
+ligne). `purger_employe_rh` nettoie aussi `contrats` avant de supprimer
+`employes` (en plus de la contrainte `ON DELETE CASCADE`, par choix
+explicite de tout nettoyer soi-même, comme les autres tables liées).
+
+**Migration** a aussi supprimé un doublon mort de `upsert_employe_rh`
+(ancien overload à 12 arguments, laissé par le `CREATE OR REPLACE` de
+Phase 3 "profils complets" qui avait créé un nouvel overload à 15
+arguments au lieu de remplacer l'existant, la signature ayant changé —
+`app.js` n'appelait déjà que la version à 15 arguments).
 
 ### Phase 3 SIRH — Profils complets & portail salarié
 
