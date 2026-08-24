@@ -118,6 +118,7 @@ function mapSupabaseRowToEmployee(row) {
     adresse: row.adresse || '',
     telephone_perso: row.telephone_perso || '',
     email_perso: row.email_perso || '',
+    alerteVue: !!row.alerte_vue,
   };
 }
 
@@ -921,7 +922,7 @@ function renderTable() {
       <td data-label="Sélection"><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
       <td data-label="Salarié"><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
       <td data-label="Entrée">${fmtDate(e.date_entree)}</td>
-      <td data-label="Sortie">${e.date_sortie?(exited?`<span style="color:var(--danger);font-weight:600">⛔ ${fmtDate(e.date_sortie)}</span>`:`<span style="color:var(--muted)">${fmtDate(e.date_sortie)}</span>`):'<span style="color:var(--muted)">—</span>'}</td>
+      <td data-label="Sortie">${e.date_sortie?(exited?`<span style="color:var(--danger);font-weight:600">⛔ ${fmtDate(e.date_sortie)}</span>${e.alerteVue?` <span onclick="marquerAlerteContratVue('${e.id}',false)" style="cursor:pointer;color:var(--muted)" title="Vu — cliquer pour refaire apparaître dans le bandeau d'alertes">👁</span>`:''}`:`<span style="color:var(--muted)">${fmtDate(e.date_sortie)}</span>`):'<span style="color:var(--muted)">—</span>'}</td>
       <td data-label="Contrat"><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
       <td data-label="Poste" style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
       <td data-label="Groupe"><div class="grp-badge grp-${groupe}">${groupe}</div></td>
@@ -973,7 +974,7 @@ function renderTable() {
 function renderEquipeAlertesContrats() {
   const el = document.getElementById('equipe-alertes-contrats');
   if (!el) return;
-  const expires = employees.filter(e => e.date_sortie && new Date(e.date_sortie) <= new Date());
+  const expires = employees.filter(e => e.date_sortie && new Date(e.date_sortie) <= new Date() && !e.alerteVue);
   if (!expires.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'block';
   el.innerHTML = `<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(239,68,68,.3)">
@@ -987,9 +988,26 @@ function renderEquipeAlertesContrats() {
       <span style="flex:1;font-size:12px;color:var(--danger)">
         <strong>${e.nom} ${e.prenom}</strong> · ${e.type_contrat||''} terminé le ${fmtDate(e.date_sortie)}
       </span>
+      <button onclick="marquerAlerteContratVue('${e.id}')" class="btn btn-ghost btn-xs" title="Pas de renouvellement prévu pour l'instant, mais salarié conservé (pourrait revenir) — retire juste l'alerte">👁 Vu</button>
       <button onclick="openContratModal('${e.id}')" class="btn btn-danger btn-xs">🔄 Traiter</button>
     </div>`).join('')}
   </div>`;
+}
+
+// "👁 Vu" (bandeau contrats expirés) : accusé de réception sans toucher au
+// contrat — pour un salarié pas renouvelé mais susceptible de revenir
+// (saisonnier...), qu'on ne veut ni supprimer (Corbeille = départ
+// définitif) ni voir nagué indéfiniment. Se réinitialise tout seul dès
+// qu'un nouveau contrat est créé (alerte_vue redémarre à false).
+async function marquerAlerteContratVue(id, vue = true) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data, error } = await db.rpc('marquer_alerte_contrat_vue_rh', { p_employe_id: id, p_vue: vue });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue'));
+    return;
+  }
+  await syncEmployeesFromSupabase({ silent: true });
 }
 
 function salTooltip(s) {
