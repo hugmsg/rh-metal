@@ -614,7 +614,7 @@
   <div class="form-grid">
     <div class="fg"><label>Nom</label><input id="f-nom" placeholder="MARTIN"></div>
     <div class="fg"><label>Prénom</label><input id="f-prenom" placeholder="Jean"></div>
-    <div class="fg"><label>Date d'entrée</label><input id="f-entree" type="date"></div>
+    <div class="fg"><label>Date d'entrée <span id="f-entree-hint" style="font-weight:400;color:var(--muted)"></span></label><input id="f-entree" type="date"></div>
     <div class="fg"><label>Date de sortie (si applicable)</label><input id="f-sortie" type="date"></div>
     <div class="fg"><label>Type de contrat</label>
       <select id="f-contrat">
@@ -655,6 +655,15 @@
     <div class="fg"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
     <div class="fg"><label>Notes / Observations</label><input id="f-notes" placeholder="Optionnel"></div>
 
+    <!-- Historique des contrats : visible seulement en édition (pas à la création, où le 1er contrat n'existe pas encore) -->
+    <div class="fg full" id="contrats-section" style="display:none;margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
+      <label style="font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between">
+        <span>📄 Historique des contrats</span>
+        <button type="button" class="btn btn-ghost btn-xs" onclick="openContratModal(document.getElementById('edit-id').value)">🔄 Nouveau contrat</button>
+      </label>
+      <div id="contrats-list" style="margin-top:8px;font-size:12px"></div>
+    </div>
+
     <div class="fg full" style="margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
       <label style="font-size:13px;font-weight:700">📍 Coordonnées personnelles <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
     </div>
@@ -680,6 +689,51 @@
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveEmployee()">💾 Enregistrer</button>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════ MODAL NOUVEAU CONTRAT (renouvellement/CDI/reprise) ═══════════════ -->
+<div class="overlay" id="contrat-modal-overlay">
+<div class="modal">
+  <div class="modal-title"><span>🔄</span> Nouveau contrat</div>
+  <div style="font-size:12px;color:var(--muted);margin:-6px 0 14px">
+    Pour un renouvellement, un passage en CDI ou une reprise (saisonnier) — crée un nouvel
+    événement contractuel, l'ancien contrat reste conservé tel quel dans l'historique.
+  </div>
+  <input type="hidden" id="fc-employe-id">
+
+  <div class="form-grid">
+    <div class="fg"><label>Date de début</label><input id="fc-debut" type="date"></div>
+    <div class="fg"><label>Date de fin (vide = CDI)</label><input id="fc-fin" type="date"></div>
+    <div class="fg"><label>Type de contrat</label>
+      <select id="fc-contrat">
+        <option>CDI</option><option>CDD</option><option>Apprentissage</option>
+        <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
+      </select>
+    </div>
+    <div class="fg"><label>Poste / Fonction</label><input id="fc-poste"></div>
+    <div class="fg"><label>Classe CCM (1 → 18)</label>
+      <select id="fc-classe">
+        <option value="1">Classe 1</option><option value="2">Classe 2</option>
+        <option value="3">Classe 3</option><option value="4">Classe 4</option>
+        <option value="5">Classe 5</option><option value="6">Classe 6</option>
+        <option value="7">Classe 7</option><option value="8">Classe 8</option>
+        <option value="9">Classe 9</option><option value="10">Classe 10</option>
+        <option value="11">Classe 11</option><option value="12">Classe 12</option>
+        <option value="13">Classe 13</option><option value="14">Classe 14</option>
+        <option value="15">Classe 15</option><option value="16">Classe 16</option>
+        <option value="17">Classe 17</option><option value="18">Classe 18</option>
+      </select>
+    </div>
+    <div class="fg"><label>Heures contractuelles / semaine</label><input id="fc-heures" type="number" step="0.5"></div>
+    <div class="fg"><label>H.Supplémentaires habituelles / sem</label><input id="fc-hsup" type="number" step="0.5"></div>
+    <div class="fg"><label>Taux horaire salarié (€)</label><input id="fc-taux" type="number" step="0.01"></div>
+  </div>
+
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeContratModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveContrat()">💾 Créer ce contrat</button>
   </div>
 </div>
 </div>

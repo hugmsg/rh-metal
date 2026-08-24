@@ -938,6 +938,7 @@ function renderTable() {
       <td data-label="Coût total/an" class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
       <td data-label="Actions"><div style="display:flex;gap:4px">
         <button class="btn btn-ghost btn-xs" onclick="openModal('${e.id}')">✏️</button>
+        ${isUuid(e.id) ? `<button class="btn btn-ghost btn-xs" onclick="openContratModal('${e.id}')" title="Nouveau contrat (renouvellement, CDI, reprise)">🔄</button>` : ''}
         ${isUuid(e.id) ? `<button class="btn btn-ghost btn-xs" onclick="openBadgeModal('${e.id}')" title="${e.hasBadge?'Badge NFC associé':'Associer un badge NFC'}">${e.hasBadge?'📶':'📡'}</button>` : ''}
         <button class="btn btn-danger btn-xs" onclick="deleteEmp('${e.id}')">🗑️</button>
       </div></td>
@@ -986,7 +987,7 @@ function renderEquipeAlertesContrats() {
       <span style="flex:1;font-size:12px;color:var(--danger)">
         <strong>${e.nom} ${e.prenom}</strong> · ${e.type_contrat||''} terminé le ${fmtDate(e.date_sortie)}
       </span>
-      <button onclick="openModal('${e.id}')" class="btn btn-danger btn-xs">✏️ Traiter</button>
+      <button onclick="openContratModal('${e.id}')" class="btn btn-danger btn-xs">🔄 Traiter</button>
     </div>`).join('')}
   </div>`;
 }
@@ -1232,17 +1233,89 @@ function openModal(id) {
     document.getElementById('f-adresse').value = e.adresse||'';
     document.getElementById('f-tel-perso').value = e.telephone_perso||'';
     document.getElementById('f-email-perso').value = e.email_perso||'';
+    // Date d'entrée = ancienneté réelle (1er contrat de l'historique, voir
+    // migration 20260824130000) — plus modifiable ici une fois un contrat
+    // créé, seul "🔄 Nouveau contrat" fait évoluer l'historique.
+    document.getElementById('f-entree').readOnly = true;
+    document.getElementById('f-entree-hint').textContent = '(ancienneté — voir historique ci-dessous)';
+    document.getElementById('contrats-section').style.display = isUuid(id) ? 'block' : 'none';
+    if (isUuid(id)) loadContratsHistory(id);
   } else {
     document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
     document.getElementById('edit-id').value = '';
     ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes','f-adresse','f-tel-perso','f-email-perso'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('f-entree').value = new Date().toISOString().split('T')[0];
+    document.getElementById('f-entree').readOnly = false;
+    document.getElementById('f-entree-hint').textContent = '';
     document.getElementById('f-contrat').value = 'CDI';
     document.getElementById('f-classe').value = '1';
     document.getElementById('f-heures').value = '35';
     document.getElementById('f-hsup').value = '0';
+    document.getElementById('contrats-section').style.display = 'none';
   }
   updateModalCalc();
+}
+
+async function loadContratsHistory(id) {
+  const el = document.getElementById('contrats-list');
+  const db = window.SupabaseDB;
+  if (!el || !db) return;
+  el.innerHTML = '<span style="color:var(--muted)">Chargement…</span>';
+  const { data, error } = await db.rpc('get_contrats_rh', { p_employe_id: id });
+  if (error) { el.innerHTML = `<span style="color:var(--danger)">Erreur : ${error.message}</span>`; return; }
+  const rows = data || [];
+  if (!rows.length) { el.innerHTML = '<span style="color:var(--muted)">Aucun historique</span>'; return; }
+  el.innerHTML = rows.map((c, i) => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;${i>0?'border-top:1px solid var(--border)':''}">
+    <span style="flex:1">${i===0?'<b>Actuel</b> · ':''}${fmtDate(c.date_debut)} → ${c.date_fin?fmtDate(c.date_fin):'en cours'}</span>
+    <span style="color:var(--muted)">${c.type_contrat} · Cl.${c.classe_num} · ${parseFloat(c.taux_horaire).toFixed(2)}€/h</span>
+  </div>`).join('');
+}
+
+function openContratModal(id) {
+  if (!id) return;
+  const e = employees.find(x => x.id === id);
+  if (!e) return;
+  document.getElementById('fc-employe-id').value = id;
+  document.getElementById('fc-debut').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fc-fin').value = '';
+  document.getElementById('fc-contrat').value = e.type_contrat || 'CDI';
+  document.getElementById('fc-poste').value = e.poste || '';
+  document.getElementById('fc-classe').value = resolveClasse(e).toString();
+  document.getElementById('fc-heures').value = e.heures_semaine || 35;
+  document.getElementById('fc-hsup').value = e.heures_sup_semaine || 0;
+  document.getElementById('fc-taux').value = e.taux_horaire || '';
+  document.getElementById('contrat-modal-overlay').classList.add('open');
+}
+
+function closeContratModal() {
+  document.getElementById('contrat-modal-overlay').classList.remove('open');
+}
+
+async function saveContrat() {
+  const employeId = document.getElementById('fc-employe-id').value;
+  const db = window.SupabaseDB;
+  if (!employeId || !db) return;
+  const dateDebut = document.getElementById('fc-debut').value;
+  if (!dateDebut) { alert('La date de début est requise'); return; }
+  const { data, error } = await db.rpc('upsert_contrat_rh', {
+    p_employe_id: employeId,
+    p_date_debut: dateDebut,
+    p_date_fin: document.getElementById('fc-fin').value || null,
+    p_type_contrat: document.getElementById('fc-contrat').value,
+    p_classe_num: parseInt(document.getElementById('fc-classe').value) || 1,
+    p_taux_horaire: parseFloat(document.getElementById('fc-taux').value) || 0,
+    p_heures_semaine: parseFloat(document.getElementById('fc-heures').value) || 35,
+    p_heures_sup_semaine: parseFloat(document.getElementById('fc-hsup').value) || 0,
+    p_poste: document.getElementById('fc-poste').value.trim(),
+  });
+  if (error || data?.ok === false) {
+    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue'));
+    return;
+  }
+  ptgToast('✓ Nouveau contrat créé');
+  closeContratModal();
+  await syncEmployeesFromSupabase({ silent: true });
+  if (document.getElementById('modal-overlay').classList.contains('open')) loadContratsHistory(employeId);
 }
 
 function closeModal() {
