@@ -921,7 +921,7 @@ function renderTable() {
       <td data-label="Sélection"><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
       <td data-label="Salarié"><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
       <td data-label="Entrée">${fmtDate(e.date_entree)}</td>
-      <td data-label="Sortie">${e.date_sortie?`<span style="color:var(--danger)">${fmtDate(e.date_sortie)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td data-label="Sortie">${e.date_sortie?(exited?`<span style="color:var(--danger);font-weight:600">⛔ ${fmtDate(e.date_sortie)}</span>`:`<span style="color:var(--muted)">${fmtDate(e.date_sortie)}</span>`):'<span style="color:var(--muted)">—</span>'}</td>
       <td data-label="Contrat"><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
       <td data-label="Poste" style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
       <td data-label="Groupe"><div class="grp-badge grp-${groupe}">${groupe}</div></td>
@@ -958,6 +958,37 @@ function renderTable() {
       <td class="num" data-label="Coût total/an"><b>${fmt(totals.cost)}</b></td>
       <td></td>
     </tr>`;
+
+  renderEquipeAlertesContrats();
+}
+
+// Bandeau d'alerte : contrats déjà arrivés à échéance (date_sortie passée)
+// mais pas encore traités (ni renouvelés/prolongés, ni archivés via la
+// Corbeille) — l'éligibilité au badge/PIN est déjà bloquée côté Supabase
+// (voir migration 20260821152633), ce bandeau sert juste à ce que ça ne
+// reste pas invisible côté RH (cas réel : CDD Anaïs Breteau découvert par
+// hasard 3 semaines après sa fin). Purement local (employees déjà chargé),
+// pas d'appel Supabase supplémentaire.
+function renderEquipeAlertesContrats() {
+  const el = document.getElementById('equipe-alertes-contrats');
+  if (!el) return;
+  const expires = employees.filter(e => e.date_sortie && new Date(e.date_sortie) <= new Date());
+  if (!expires.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = `<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(239,68,68,.3)">
+    <div style="background:rgba(239,68,68,.1);padding:7px 12px;border-bottom:1px solid rgba(239,68,68,.3)">
+      <span style="font-size:12px;font-weight:700;color:var(--danger)">
+        ⛔ ${expires.length} contrat${expires.length>1?'s':''} arrivé${expires.length>1?'s':''} à échéance — accès pointage déjà bloqué, fiche à traiter (renouveler, passer en CDI, ou archiver)
+      </span>
+    </div>
+    ${expires.map(e => `<div style="background:rgba(239,68,68,.06);padding:7px 12px;
+      border-bottom:1px solid rgba(239,68,68,.15);display:flex;align-items:center;gap:10px">
+      <span style="flex:1;font-size:12px;color:var(--danger)">
+        <strong>${e.nom} ${e.prenom}</strong> · ${e.type_contrat||''} terminé le ${fmtDate(e.date_sortie)}
+      </span>
+      <button onclick="openModal('${e.id}')" class="btn btn-danger btn-xs">✏️ Traiter</button>
+    </div>`).join('')}
+  </div>`;
 }
 
 function salTooltip(s) {
