@@ -26,6 +26,7 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
   `style.css` ou tout autre asset listé dans `SHELL`/`STATIC_ASSETS` change
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
+- `supabase/functions/` — Edge Functions (première depuis le 2026-08-24 : `activer-portail`, création de comptes Supabase Auth), même logique que les migrations : copie source/traçabilité, déployées directement via MCP Supabase (`deploy_edge_function`), ce dossier n'est pas rejoué automatiquement
 - `nfc-bridge/` — pont Python (lecteur PC/SC → Supabase Realtime Broadcast) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
@@ -234,6 +235,39 @@ retenu. **Documents RH (contrat/RIB/pièce d'identité) : écarté (décision
 Hugo, 2026-08-24)** — l'espace de stockage fichiers du plan Supabase Free
 (1 Go) est jugé trop limité pour ce chantier ; à reconsidérer seulement en
 cas de passage à un plan payant.
+
+**Chantier 0 — authentification RH (2026-08-24) : livré, prérequis au
+portail.** Jusqu'ici la partie RH n'avait aucune authentification —
+protégée uniquement par la confidentialité de l'URL. Le portail salarié
+oblige à partager cette même URL avec tous les salariés, ce qui aurait
+exposé de fait toute l'app RH à quiconque retire un simple paramètre
+`?portail=1` de la barre d'adresse (trivial). Ajout d'une vraie session
+Supabase Auth des deux côtés (`initAuthGate()`, `app.js`) : rien ne
+s'affiche (`#header`/`.bottom-nav`/`.main` masqués via `body.auth-pending`)
+tant que la session n'est pas résolue. Ce qui s'affiche ensuite dépend du
+**rôle résolu côté serveur** (`get_mon_role_rh()`, via `auth.uid()` →
+`employes.auth_user_id`/`is_rh_admin` — jamais un paramètre d'URL) :
+RH complet si `is_rh_admin`, sinon écran "accès non autorisé" en
+attendant que le portail lui-même soit construit. **Le mode kiosque
+(`?kiosk=1`) n'est pas concerné** : il contourne entièrement cet écran
+(`KIOSK_MODE` court-circuite `initAuthGate`), il utilise déjà des RPC
+anonymes dédiées (`authentifier_par_pin`/`pointer_par_nfc`) — un
+Raspberry Pi en salle de pause ne peut pas rester connecté en
+permanence avec un compte personnel.
+
+Nouvelle brique technique : une **Edge Function** (`activer-portail`,
+`supabase/functions/activer-portail/`, déployée via MCP Supabase) crée le
+compte Supabase Auth d'un salarié et lui envoie l'invitation par email
+(`email_perso`) — impossible depuis une RPC SQL classique (nécessite la
+clé `service_role`, l'API Admin Auth n'est pas accessible en SQL). Premier
+provisioning côté projet : compte de Hugo bootstrappé par un appel direct
+à l'Edge Function (avant que l'app ne soit protégée, seul cas où l'appel
+est autorisé sans authentification — l'Edge Function vérifie elle-même
+qu'aucun admin n'a encore de compte lié avant d'accepter un appel anonyme ;
+ensuite tout appel doit prouver un rôle `is_rh_admin` via son JWT).
+Bouton "Activer l'accès portail" sur la fiche salarié (appelant cette même
+Edge Function) : **pas encore construit**, viendra avec le portail
+lui-même.
 
 **Portail salarié — cadré, pas commencé.** Authentification par email +
 mot de passe (Supabase Auth, pas de réutilisation du PIN kiosque — trop
