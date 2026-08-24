@@ -12,6 +12,12 @@
 }
 :root[data-theme="light"] body{background:var(--bg)}
 :root[data-theme="light"] .overlay{background:rgba(20,20,40,.45)}
+/* Rien de l'app RH ne doit être visible tant que l'auth gate n'a pas
+   résolu la session (voir initAuthGate() dans app.js) */
+body.auth-pending #header,
+body.auth-pending .bottom-nav,
+body.auth-pending .main { display:none; }
+#auth-gate input { width:100%; }
 /* Couleurs "pastel" pensées pour fond sombre → trop pâles sur fond clair, on les fonce pour garder les alertes de conformité lisibles */
 :root[data-theme="light"] .badge-alert{color:#b91c1c}
 :root[data-theme="light"] .badge-ok{color:#047857}

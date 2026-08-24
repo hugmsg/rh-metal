@@ -28,6 +28,40 @@
 </head>
 <body>
 
+<!-- ═══════════════ AUTH GATE (connexion RH / salarié) ═══════════════
+     Rien d'autre ne s'affiche tant que ceci n'est pas résolu (voir
+     initAuthGate() dans app.js) — le rôle (RH admin vs salarié) vient
+     toujours d'une session Supabase Auth vérifiée côté serveur, jamais
+     d'un paramètre d'URL. Le mode kiosque (?kiosk=1) contourne cet écran
+     entièrement, voir KIOSK_MODE. -->
+<div id="auth-gate" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--bg);align-items:center;justify-content:center;padding:20px;">
+  <div style="width:100%;max-width:340px;">
+    <div style="text-align:center;margin-bottom:28px;font-size:20px;font-weight:800">⚙️ RH Sonotrad</div>
+
+    <!-- Connexion -->
+    <div id="auth-view-login">
+      <div class="fg" style="margin-bottom:12px"><label>Email</label><input id="auth-email" type="email" autocomplete="username"></div>
+      <div class="fg" style="margin-bottom:16px"><label>Mot de passe</label><input id="auth-password" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')authLogin()"></div>
+      <button class="btn btn-primary" style="width:100%" onclick="authLogin()">Se connecter</button>
+      <div id="auth-login-error" style="color:var(--danger);font-size:12px;margin-top:10px;text-align:center"></div>
+    </div>
+
+    <!-- Définir mot de passe (1ère connexion après invitation) -->
+    <div id="auth-view-setpw" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;text-align:center">Bienvenue — définissez votre mot de passe pour activer votre accès.</div>
+      <div class="fg" style="margin-bottom:16px"><label>Nouveau mot de passe (6 caractères min.)</label><input id="auth-newpw" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')authSetPassword()"></div>
+      <button class="btn btn-primary" style="width:100%" onclick="authSetPassword()">Définir mon mot de passe</button>
+      <div id="auth-setpw-error" style="color:var(--danger);font-size:12px;margin-top:10px;text-align:center"></div>
+    </div>
+
+    <!-- Accès refusé / rôle non géré côté app pour l'instant -->
+    <div id="auth-view-denied" style="display:none;text-align:center">
+      <div style="font-size:13px;color:var(--danger);margin-bottom:16px">Ce compte n'est pas autorisé à accéder à cette application.</div>
+      <button class="btn btn-ghost" style="width:100%" onclick="authLogout()">Se déconnecter</button>
+    </div>
+  </div>
+</div>
+
 <!-- HEADER -->
 <div id="header">
   <div class="logo"><span class="logo-icon">⚙️</span><span class="logo-full">RH Sonotrad</span><span class="logo-short">RH Sonotrad</span></div>
@@ -45,6 +79,7 @@
     <span id="ok-badge" class="badge-ok" style="display:none">✅ Conforme</span>
     <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇<span class="btn-label"> Export CSV</span></button>
     <button class="btn btn-primary btn-sm" onclick="openModal()">+<span class="btn-label"> Nouveau salarié</span></button>
+    <button class="btn btn-ghost btn-sm" onclick="authLogout()" title="Se déconnecter">🚪</button>
   </div>
 </div>
 

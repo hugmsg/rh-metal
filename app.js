@@ -3982,16 +3982,91 @@ function _ptgControleJourRender() {
 }
 
 // ═══════════════════════════════════════════
+// AUTH GATE — RH admin / salarié, jamais un paramètre d'URL (chantier
+// 2026-08-24 : le portail salarié à venir oblige à partager la même URL
+// rh-metal.vercel.app avec tous les salariés, donc l'app RH ne peut plus
+// se contenter d'être protégée par la seule confidentialité de son URL).
+// ═══════════════════════════════════════════
+async function initAuthGate() {
+  if (KIOSK_MODE) { bootAppUnlocked(); return; } // kiosque : jamais de gate, RPC anonymes dédiées
+  const db = window.SupabaseDB;
+  if (!db) { bootAppUnlocked(); return; } // pas de config Supabase (dev local) : comportement historique
+
+  db.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') showAuthView('setpw');
+  });
+
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { showAuthView('login'); return; }
+  await resolveRoleAndBoot();
+}
+
+async function resolveRoleAndBoot() {
+  const db = window.SupabaseDB;
+  const { data, error } = await db.rpc('get_mon_role_rh');
+  if (error || !data?.ok) { showAuthView('denied'); return; }
+  if (data.is_rh_admin) { bootAppUnlocked(); return; }
+  // Salarié lié mais pas admin : le portail lui-même arrive dans un
+  // prochain chantier — pour l'instant son compte existe mais rien ne lui
+  // est encore accessible.
+  showAuthView('denied');
+}
+
+function showAuthView(view) {
+  document.body.classList.add('auth-pending');
+  document.getElementById('auth-gate').style.display = 'flex';
+  document.getElementById('auth-view-login').style.display = view === 'login' ? 'block' : 'none';
+  document.getElementById('auth-view-setpw').style.display = view === 'setpw' ? 'block' : 'none';
+  document.getElementById('auth-view-denied').style.display = view === 'denied' ? 'block' : 'none';
+}
+
+async function authLogin() {
+  const db = window.SupabaseDB;
+  const errEl = document.getElementById('auth-login-error');
+  errEl.textContent = '';
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById('auth-email').value.trim(),
+    password: document.getElementById('auth-password').value,
+  });
+  if (error) { errEl.textContent = 'Email ou mot de passe incorrect.'; return; }
+  await resolveRoleAndBoot();
+}
+
+async function authSetPassword() {
+  const db = window.SupabaseDB;
+  const errEl = document.getElementById('auth-setpw-error');
+  errEl.textContent = '';
+  const pw = document.getElementById('auth-newpw').value;
+  if (!pw || pw.length < 6) { errEl.textContent = 'Minimum 6 caractères.'; return; }
+  const { error } = await db.auth.updateUser({ password: pw });
+  if (error) { errEl.textContent = error.message; return; }
+  await resolveRoleAndBoot();
+}
+
+function authLogout() {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  db.auth.signOut().then(() => location.reload());
+}
+
+function bootAppUnlocked() {
+  const gate = document.getElementById('auth-gate');
+  if (gate) gate.style.display = 'none';
+  document.body.classList.remove('auth-pending');
+  loadData();
+  refresh();
+  renderSettings();
+  syncEmployeesFromSupabase({ silent: true });
+  subscribeEmployesChanges();
+  document.body.classList.toggle('kiosk-mode', KIOSK_MODE);
+  if (KIOSK_MODE) showTab('pointage');
+}
+
+// ═══════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════
 applyTheme(document.documentElement.getAttribute('data-theme') || 'dark');
-loadData();
-refresh();
-renderSettings();
-syncEmployeesFromSupabase({ silent: true });
-subscribeEmployesChanges();
-document.body.classList.toggle('kiosk-mode', KIOSK_MODE);
-if (KIOSK_MODE) showTab('pointage');
+initAuthGate();
 
 // ═══════════════════════════════════════════
 // SERVICE WORKER (PWA)
