@@ -204,6 +204,20 @@ ligne). `purger_employe_rh` nettoie aussi `contrats` avant de supprimer
 `employes` (en plus de la contrainte `ON DELETE CASCADE`, par choix
 explicite de tout nettoyer soi-même, comme les autres tables liées).
 
+**"👁 Vu" sur le bandeau contrats expirés (2026-08-24, même session).**
+Un salarié non renouvelé mais susceptible de revenir (saisonnier...) ne
+doit **pas** passer par la Corbeille (= départ définitif, irréversible une
+fois purgé) — juste rester tel quel, prêt pour un "🔄 Nouveau contrat" le
+jour venu. Mais le bandeau chantier 3 nagait indéfiniment sans option
+intermédiaire. Plutôt qu'un nouveau statut (jugé inutilement complexe),
+simple accusé de réception par contrat : colonne `contrats.alerte_vue`
+(migration `20260824150000`), bouton "👁 Vu" dans le bandeau
+(`marquerAlerteContratVue`, RPC `marquer_alerte_contrat_vue_rh`) qui
+retire ce salarié du bandeau sans toucher à son contrat — un petit 👁
+cliquable apparaît alors dans la colonne "Sortie" pour annuler
+(re-signaler). Se réinitialise tout seul dès qu'un nouveau contrat est créé
+(`alerte_vue` redémarre à `false` par défaut sur chaque nouvelle ligne).
+
 **Migration** a aussi supprimé un doublon mort de `upsert_employe_rh`
 (ancien overload à 12 arguments, laissé par le `CREATE OR REPLACE` de
 Phase 3 "profils complets" qui avait créé un nouvel overload à 15
