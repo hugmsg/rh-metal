@@ -141,6 +141,18 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   supprimer la ligne `employes` (ne dépend pas des FK `employe_id`
   incohérentes en base — voir migration pour le détail). Irréversible,
   confirmation explicite côté UI.
+- **Bandeau contrats expirés + statut visuel** (2026-08-24) : l'éligibilité
+  au badge/PIN était déjà bloquée côté Supabase (point ci-dessus), mais
+  rien côté Équipe ne signalait qu'un contrat était arrivé à échéance —
+  le cas Breteau n'avait été repéré que par hasard. `renderEquipeAlertesContrats()`
+  (`app.js`, appelée en fin de `renderTable()`, purement local — aucun appel
+  Supabase de plus) affiche un bandeau rouge listant les salariés dont
+  `date_sortie` est passée mais toujours présents dans Équipe (pas encore
+  archivés via la Corbeille), avec un bouton "Traiter" qui ouvre directement
+  leur fiche (`openModal`) pour renouveler (reculer/effacer `date_sortie`),
+  passer en CDI, ou supprimer si la fin est définitive. Colonne "Sortie" :
+  une date passée s'affiche en rouge gras avec ⛔, une date future reste en
+  gris neutre (avant : les deux étaient rendues identiquement en rouge).
 
 ### Phase 3 SIRH — Profils complets & portail salarié
 
