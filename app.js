@@ -1965,6 +1965,26 @@ const SUPABASE_URL = 'https://ajewxwxerrjnnervzjwm.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqZXd4d3hlcnJqbm5lcnZ6andtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MDU5MDEsImV4cCI6MjA5NzA4MTkwMX0.NJcm1_tb4BcCSileiODYP0pKJ1LRVXFTIr2idQBrALg';
 window.SupabaseDB = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
+// Abonnement enregistré immédiatement après la création du client : le
+// traitement du hash d'URL d'un lien d'invitation/récupération (et donc
+// l'événement PASSWORD_RECOVERY) démarre dès la création du client
+// Supabase, potentiellement avant que initAuthGate() (plus bas, appelé
+// dans INIT) n'ait la main — s'abonner plus tard ferait rater l'événement
+// (bug réel constaté le 2026-08-24 : connexion directe via la session de
+// récupération, sans jamais passer par l'écran de définition du mot de
+// passe). _authRecoveryPending permet à initAuthGate() de savoir que
+// l'événement a déjà été capté ici, même s'il arrive après son propre
+// getSession().
+let _authRecoveryPending = false;
+if (window.SupabaseDB) {
+  window.SupabaseDB.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      _authRecoveryPending = true;
+      showAuthView('setpw');
+    }
+  });
+}
+
 function ptgToast(msg, ms = 2800) {
   const el = document.getElementById('ptg-toast');
   if (!el) return;
@@ -3991,10 +4011,7 @@ async function initAuthGate() {
   if (KIOSK_MODE) { bootAppUnlocked(); return; } // kiosque : jamais de gate, RPC anonymes dédiées
   const db = window.SupabaseDB;
   if (!db) { bootAppUnlocked(); return; } // pas de config Supabase (dev local) : comportement historique
-
-  db.auth.onAuthStateChange((event) => {
-    if (event === 'PASSWORD_RECOVERY') showAuthView('setpw');
-  });
+  if (_authRecoveryPending) return; // déjà géré par l'abonnement enregistré juste après createClient()
 
   const { data: { session } } = await db.auth.getSession();
   if (!session) { showAuthView('login'); return; }
