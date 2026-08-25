@@ -1965,17 +1965,19 @@ const SUPABASE_URL = 'https://ajewxwxerrjnnervzjwm.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqZXd4d3hlcnJqbm5lcnZ6andtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MDU5MDEsImV4cCI6MjA5NzA4MTkwMX0.NJcm1_tb4BcCSileiODYP0pKJ1LRVXFTIr2idQBrALg';
 window.SupabaseDB = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-// Abonnement enregistré immédiatement après la création du client : le
-// traitement du hash d'URL d'un lien d'invitation/récupération (et donc
-// l'événement PASSWORD_RECOVERY) démarre dès la création du client
-// Supabase, potentiellement avant que initAuthGate() (plus bas, appelé
-// dans INIT) n'ait la main — s'abonner plus tard ferait rater l'événement
-// (bug réel constaté le 2026-08-24 : connexion directe via la session de
-// récupération, sans jamais passer par l'écran de définition du mot de
-// passe). _authRecoveryPending permet à initAuthGate() de savoir que
-// l'événement a déjà été capté ici, même s'il arrive après son propre
-// getSession().
-let _authRecoveryPending = false;
+// _authRecoveryPending est d'abord déduit de façon SYNCHRONE du hash d'URL
+// (présent dès le chargement de la page pour un lien de récupération/
+// invitation, ex. "#access_token=...&type=recovery") — pas seulement de
+// l'événement PASSWORD_RECOVERY, qui est asynchrone et peut arriver APRÈS
+// que initAuthGate() (plus bas, appelé dans INIT) ait déjà résolu
+// getSession() avec la session de récupération (une session valide comme
+// une autre) et démarré l'app directement (bug réel constaté le
+// 2026-08-25 : écran "définir le mot de passe" visible une fraction de
+// seconde puis application ouverte sans mot de passe défini — la 1ère
+// correction du 2026-08-24, basée uniquement sur l'événement, ne suffisait
+// pas à éliminer cette race). L'abonnement reste en place en complément,
+// pour le cas où le format du hash changerait.
+let _authRecoveryPending = /type=recovery/.test(window.location.hash);
 if (window.SupabaseDB) {
   window.SupabaseDB.auth.onAuthStateChange((event) => {
     if (event === 'PASSWORD_RECOVERY') {
