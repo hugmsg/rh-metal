@@ -265,18 +265,63 @@ provisioning côté projet : compte de Hugo bootstrappé par un appel direct
 est autorisé sans authentification — l'Edge Function vérifie elle-même
 qu'aucun admin n'a encore de compte lié avant d'accepter un appel anonyme ;
 ensuite tout appel doit prouver un rôle `is_rh_admin` via son JWT).
-Bouton "Activer l'accès portail" sur la fiche salarié (appelant cette même
-Edge Function) : **pas encore construit**, viendra avec le portail
-lui-même.
+**Bouton "Activer l'accès portail" (2026-08-25, livré)** : section "🔑
+Portail salarié" dans la fiche salarié (`app.js`, `renderPortailStatus()`/
+`activerPortailAccess()`), affichée seulement en édition. Trois états :
+email personnel manquant (bouton désactivé, message d'aide) / non activé
+(bouton, appelle `activer-portail` avec le JWT admin courant en
+`Authorization: Bearer`) / déjà activé (`portail_actif`, badge ✅) — ce
+booléen est exposé par `get_employes_rh()` (`auth_user_id IS NOT NULL`,
+jamais l'UID lui-même) et **doit être recopié explicitement** dans
+`mapSupabaseRowToEmployee()` comme tout autre champ Supabase consommé
+côté client (bug réel du 2026-08-25 : champ oublié dans l'allowlist de
+cette fonction, bouton "Activer" restait affiché même une fois le compte
+déjà activé — corrigé le jour même).
 
-**Portail salarié — cadré, pas commencé.** Authentification par email +
-mot de passe (Supabase Auth, pas de réutilisation du PIN kiosque — trop
-faible pour protéger des données personnelles). **Périmètre de la 1ère
-étape fixé le 2026-08-24** : consultation uniquement — ses propres
-pointages/heures et son solde de congés. La demande de congé en ligne
-(romprait le modèle actuel "saisie RH uniquement" du module Congés, voir
-plus bas — nécessiterait un flux de validation RH) reste une évolution
-possible mais **pas dans le périmètre de départ**.
+**Portail salarié — écrans de consultation (2026-08-25, livré).**
+Authentification par email + mot de passe (Supabase Auth, pas de
+réutilisation du PIN kiosque — trop faible pour protéger des données
+personnelles). **Périmètre fixé le 2026-08-24** : consultation
+uniquement — ses propres pointages/heures et son solde de congés. La
+demande de congé en ligne (romprait le modèle actuel "saisie RH
+uniquement" du module Congés, voir plus bas — nécessiterait un flux de
+validation RH) reste une évolution possible mais **pas dans le périmètre
+de départ**.
+
+Un compte lié (`auth_user_id`) mais pas `is_rh_admin` est routé par
+`resolveRoleAndBoot()` vers `bootPortalSalarie()` (`app.js`) — un écran
+séparé (`#portal-view`, `index.html`), jamais l'app RH complète ni son
+`showTab()`. Deux sous-onglets :
+- **Mes heures** (`portalLoadHeures`) — navigation mois par mois, appelle
+  `get_mes_heures_rh(p_debut, p_fin)`, équivalent lecture seule de
+  Rapports (badgeages groupés par intervalles via `_ptgIntervals`,
+  corrections admin affichées avec leur commentaire, total du mois).
+- **Mes congés** (`portalLoadConges`) — appelle `get_mes_conges_rh()` puis
+  réutilise directement `calcSoldeCP()`/`sommeConges()` (variable globale
+  `conges`, sans risque de collision : le portail et l'app RH complète ne
+  bootent jamais dans la même session) pour le solde CP + historique des
+  demandes.
+
+**Sécurité — pourquoi des RPC dédiées plutôt qu'un accès direct aux
+tables.** `pointages`/`heures_journalieres`/`heures_corrections` ont une
+policy `anon SELECT true` (voulue pour le kiosque, sans login, voir
+section Pointage plus bas) — un accès direct depuis le portail aurait
+exposé les heures de **tous** les salariés à n'importe quel compte
+portail connecté (un filtrage uniquement côté client se contourne
+trivialement depuis les devtools). D'où `get_mes_heures_rh`/
+`get_mes_conges_rh`, `SECURITY DEFINER`, qui résolvent l'employé appelant
+via `auth.uid()` côté serveur — jamais un id transmis par le client, même
+principe que `get_mon_role_rh()`.
+
+**Piège CSS découvert en testant l'écran (2026-08-25)** : la règle
+globale `table{min-width:1100px}` (`style.css`, pensée pour le tableau
+Équipe en desktop, où chaque colonne a besoin de place) cible **toute**
+balise `<table>` de la page — elle forçait aussi le tableau "Mes heures"
+du portail (pensé pour un écran étroit/mobile) à déborder de son
+conteneur. Corrigé en ajoutant `min-width:0` à l'inline style de ce
+tableau spécifique (l'inline style gagne sur la règle globale). Si un
+futur tableau hors du contexte Équipe déborde inexplicablement, vérifier
+cette règle globale avant de chercher ailleurs.
 
 ## Logique métier clé (dans `app.js`)
 
