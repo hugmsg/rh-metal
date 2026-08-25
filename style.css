@@ -38,6 +38,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .nav-btn{padding:6px 14px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;font-weight:500;transition:.15s all}
 .nav-btn:hover{background:var(--surface2);color:var(--text)}
 .nav-btn.active{background:rgba(124,108,248,.15);color:var(--accent)}
+.portal-tab-btn.active{background:rgba(124,108,248,.15);color:var(--accent);border-color:var(--accent)}
 .header-right{margin-left:auto;display:flex;align-items:center;gap:8px}
 .badge-alert{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer}
 .badge-ok{background:rgba(16,185,129,.12);color:#6ee7b7;border:1px solid rgba(16,185,129,.25);border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600}

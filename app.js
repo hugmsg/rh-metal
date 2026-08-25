@@ -1258,6 +1258,8 @@ function openModal(id) {
     document.getElementById('f-entree-hint').textContent = '(ancienneté — voir historique ci-dessous)';
     document.getElementById('contrats-section').style.display = isUuid(id) ? 'block' : 'none';
     if (isUuid(id)) loadContratsHistory(id);
+    document.getElementById('portail-section').style.display = isUuid(id) ? 'block' : 'none';
+    if (isUuid(id)) renderPortailStatus(e);
   } else {
     document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
     document.getElementById('edit-id').value = '';
@@ -1270,8 +1272,57 @@ function openModal(id) {
     document.getElementById('f-heures').value = '35';
     document.getElementById('f-hsup').value = '0';
     document.getElementById('contrats-section').style.display = 'none';
+    document.getElementById('portail-section').style.display = 'none';
   }
   updateModalCalc();
+}
+
+// Portail salarié — bouton "Activer l'accès" sur la fiche (voir Edge
+// Function activer-portail, chantier 0 du 2026-08-24). Nécessite un email
+// personnel (l'invitation Supabase Auth part dessus) ; une fois activé,
+// l'action n'est plus réversible depuis l'app (dissocier un compte n'est
+// pas dans le périmètre du portail, hors scope pour l'instant).
+function renderPortailStatus(e) {
+  const el = document.getElementById('portail-status');
+  if (!el) return;
+  if (e.portail_actif) {
+    el.innerHTML = '<span style="color:var(--ok,#10b981)">✅ Accès portail activé</span>';
+  } else if (!e.email_perso) {
+    el.innerHTML = '<span style="color:var(--muted)">Ajoutez un email personnel ci-dessus pour pouvoir activer l\'accès.</span>';
+  } else {
+    el.innerHTML = `<button type="button" class="btn btn-ghost btn-xs" onclick="activerPortailAccess('${e.id}')">📧 Activer l'accès portail</button>`;
+  }
+}
+
+async function activerPortailAccess(id) {
+  const db = window.SupabaseDB;
+  if (!db) return;
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) return;
+  const el = document.getElementById('portail-status');
+  if (el) el.innerHTML = '<span style="color:var(--muted)">Envoi de l\'invitation…</span>';
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/activer-portail`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ employe_id: id }),
+    });
+    const result = await resp.json();
+    if (!result.ok) {
+      if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur : ${result.message || 'échec de l\'activation'}</span>`;
+      return;
+    }
+    const emp = employees.find(x => x.id === id);
+    if (emp) emp.portail_actif = true;
+    if (el) el.innerHTML = '<span style="color:var(--ok,#10b981)">✅ Invitation envoyée — le salarié peut désormais définir son mot de passe.</span>';
+    syncEmployeesFromSupabase({ silent: true });
+  } catch (err) {
+    if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur réseau : ${err.message}</span>`;
+  }
 }
 
 async function loadContratsHistory(id) {
@@ -4025,10 +4076,136 @@ async function resolveRoleAndBoot() {
   const { data, error } = await db.rpc('get_mon_role_rh');
   if (error || !data?.ok) { showAuthView('denied'); return; }
   if (data.is_rh_admin) { bootAppUnlocked(); return; }
-  // Salarié lié mais pas admin : le portail lui-même arrive dans un
-  // prochain chantier — pour l'instant son compte existe mais rien ne lui
-  // est encore accessible.
-  showAuthView('denied');
+  bootPortalSalarie(data);
+}
+
+// ═══════════════════════════════════════════
+// PORTAIL SALARIÉ — consultation seule (heures, congés). Voir
+// resolveRoleAndBoot() : un compte lié (auth_user_id) mais pas is_rh_admin
+// atterrit ici, jamais dans l'app RH complète. Toutes les données passent
+// par des RPC self-scoped (get_mes_heures_rh/get_mes_conges_rh, résolues
+// via auth.uid() côté serveur) — jamais un id transmis par ce code, pour
+// qu'un salarié ne puisse techniquement pas consulter les données d'un
+// collègue même en modifiant les appels réseau depuis les devtools.
+// ═══════════════════════════════════════════
+let _monProfil = null;
+let _portalHeuresOffset = 0;
+
+function bootPortalSalarie(profil) {
+  _monProfil = profil;
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('portal-view').style.display = 'block';
+  document.getElementById('portal-nom').textContent = `${profil.prenom} ${profil.nom}`;
+  portalShowTab('heures');
+}
+
+function portalShowTab(tab) {
+  document.getElementById('portal-heures').style.display = tab === 'heures' ? 'block' : 'none';
+  document.getElementById('portal-conges').style.display = tab === 'conges' ? 'block' : 'none';
+  document.querySelectorAll('.portal-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.ptab === tab));
+  if (tab === 'heures') portalLoadHeures(_portalHeuresOffset);
+  else portalLoadConges();
+}
+
+function _portalMonthRange(offset) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + offset);
+  const start = new Date(d.getFullYear(), d.getMonth(), 1);
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  const label = start.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  return { start: _ptgLocalDateStr(start), end: _ptgLocalDateStr(end), label };
+}
+
+async function portalLoadHeures(offset = 0) {
+  _portalHeuresOffset = offset;
+  const db = window.SupabaseDB;
+  const content = document.getElementById('portal-heures-content');
+  if (!db || !content) return;
+  const { start, end, label } = _portalMonthRange(offset);
+  document.getElementById('portal-heures-label').textContent = label;
+  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
+
+  const { data, error } = await db.rpc('get_mes_heures_rh', { p_debut: start, p_fin: end });
+  if (error || !data?.ok) {
+    content.innerHTML = '<div style="color:var(--danger);padding:16px;font-size:13px">Erreur de chargement.</div>';
+    return;
+  }
+  const rows = (data.heures || []).slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  if (!rows.length) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Aucune donnée sur ce mois</div>';
+    return;
+  }
+  const badgesByDate = new Map();
+  (data.badges || []).forEach(p => {
+    if (!badgesByDate.has(p.date)) badgesByDate.set(p.date, []);
+    badgesByDate.get(p.date).push(p);
+  });
+  const corrByDate = new Map();
+  (data.corrections || []).forEach(c => {
+    if (!corrByDate.has(c.date)) corrByDate.set(c.date, []);
+    corrByDate.get(c.date).push(c);
+  });
+
+  let total = 0;
+  const body = rows.map((r, i) => {
+    const corrections = corrByDate.get(r.date) || [];
+    const correctionMin = corrections.reduce((s, c) => s + c.delta_min, 0);
+    const nm = _ptgItvMin(r.duree_nette) + correctionMin;
+    total += nm;
+    const corrTxt = corrections.map(c =>
+      `<div style="color:var(--warn);font-size:11px">${c.delta_min > 0 ? '+' : ''}${c.delta_min}min${c.commentaire ? ' — ' + c.commentaire : ''}</div>`
+    ).join('');
+    return `<tr style="background:${i % 2 ? 'var(--surface2)' : 'var(--surface)'};border-bottom:1px solid var(--border)">
+      <td style="padding:7px 10px;font-weight:600;white-space:nowrap">${_ptgFmtDate(r.date)}</td>
+      <td style="padding:7px 10px">${_ptgFmtBadges(badgesByDate.get(r.date) || [])}${corrTxt}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:700;white-space:nowrap">${_ptgHMAdj(nm)}</td>
+    </tr>`;
+  }).join('');
+  content.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="text-align:left;color:var(--muted);font-size:11px">
+      <th style="padding:6px 10px">Date</th><th style="padding:6px 10px">Badgeages</th><th style="padding:6px 10px;text-align:right">Total</th>
+    </tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr style="font-weight:800;border-top:2px solid var(--border)">
+      <td style="padding:8px 10px" colspan="2">Total du mois</td><td style="padding:8px 10px;text-align:right">${_ptgHMAdj(total)}</td>
+    </tr></tfoot>
+  </table>`;
+}
+
+async function portalLoadConges() {
+  const db = window.SupabaseDB;
+  const content = document.getElementById('portal-conges-content');
+  if (!db || !content || !_monProfil) return;
+  content.innerHTML = '<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>';
+
+  const { data, error } = await db.rpc('get_mes_conges_rh');
+  if (error) {
+    content.innerHTML = '<div style="color:var(--danger);padding:16px;font-size:13px">Erreur de chargement.</div>';
+    return;
+  }
+  // Réutilise calcSoldeCP()/sommeConges() (global `conges`) : sans risque de
+  // collision avec l'admin, le portail et l'app RH complète ne bootent
+  // jamais dans la même session (voir resolveRoleAndBoot).
+  conges = data || [];
+  const solde = calcSoldeCP({ id: _monProfil.employe_id, date_entree: _monProfil.date_entree });
+  const typeLabels = { cp: 'Congés payés', maladie: 'Maladie', evenement_familial: 'Événement familial', sans_solde: 'Sans solde' };
+  const historique = conges.length
+    ? conges.map(c => `<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <span>${typeLabels[c.type] || c.type}${c.motif ? ' — ' + c.motif : ''}</span>
+        <span style="color:var(--muted);white-space:nowrap">${fmtDateFr(c.date_debut)} → ${fmtDateFr(c.date_fin)} (${c.jours}j)</span>
+      </div>`).join('')
+    : '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0">Aucun congé enregistré</div>';
+
+  content.innerHTML = `
+    <div class="mini-calc" style="margin-bottom:20px">
+      <div class="row"><span>Acquis (période en cours)</span><span>${solde.acquis} j</span></div>
+      <div class="row"><span>Pris</span><span>${solde.pris} j</span></div>
+      <div class="row"><span>💰 Solde CP</span><span>${solde.solde} j</span></div>
+    </div>
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">Historique</div>
+    ${historique}
+  `;
 }
 
 function showAuthView(view) {
