@@ -119,6 +119,7 @@ function mapSupabaseRowToEmployee(row) {
     telephone_perso: row.telephone_perso || '',
     email_perso: row.email_perso || '',
     alerteVue: !!row.alerte_vue,
+    portail_actif: !!row.portail_actif,
   };
 }
 
