@@ -4180,7 +4180,7 @@ async function portalLoadHeures(offset = 0) {
       <td style="padding:7px 10px;text-align:right;font-weight:700;white-space:nowrap">${_ptgHMAdj(nm)}</td>
     </tr>`;
   }).join('');
-  content.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+  content.innerHTML = `<table style="width:100%;min-width:0;border-collapse:collapse;font-size:12px">
     <thead><tr style="text-align:left;color:var(--muted);font-size:11px">
       <th style="padding:6px 10px">Date</th><th style="padding:6px 10px">Badgeages</th><th style="padding:6px 10px;text-align:right">Total</th>
     </tr></thead>
