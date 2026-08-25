@@ -4118,6 +4118,23 @@ function _portalMonthRange(offset) {
   return { start: _ptgLocalDateStr(start), end: _ptgLocalDateStr(end), label };
 }
 
+// Variante de _ptgFmtBadges() sans white-space:nowrap — le portail s'affiche
+// dans une colonne étroite (mobile compris), contrairement à Rapports côté
+// admin (desktop large) : forcer nowrap y ferait déborder le tableau hors de
+// son conteneur (constaté en testant l'écran, voir commit correctif).
+function _portalFmtBadges(list) {
+  const intervals = _ptgIntervals(list);
+  if (!intervals.length) return '—';
+  return intervals.map(iv => {
+    const s = _ptgFmtTime(iv.start);
+    const e = iv.end ? _ptgFmtTime(iv.end) : '…';
+    const durMin = iv.end ? Math.round((new Date(iv.end) - new Date(iv.start)) / 60000) : null;
+    const dur = durMin !== null ? ` <span style="color:var(--muted)">(${_ptgHM(durMin)})</span>` : '';
+    const prefix = iv.pause ? '<span title="Pause — correction admin" style="color:var(--warn)">⏸ </span>' : '';
+    return `<div>${prefix}${s} → ${e}${dur}</div>`;
+  }).join('');
+}
+
 async function portalLoadHeures(offset = 0) {
   _portalHeuresOffset = offset;
   const db = window.SupabaseDB;
@@ -4159,7 +4176,7 @@ async function portalLoadHeures(offset = 0) {
     ).join('');
     return `<tr style="background:${i % 2 ? 'var(--surface2)' : 'var(--surface)'};border-bottom:1px solid var(--border)">
       <td style="padding:7px 10px;font-weight:600;white-space:nowrap">${_ptgFmtDate(r.date)}</td>
-      <td style="padding:7px 10px">${_ptgFmtBadges(badgesByDate.get(r.date) || [])}${corrTxt}</td>
+      <td style="padding:7px 10px">${_portalFmtBadges(badgesByDate.get(r.date) || [])}${corrTxt}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:700;white-space:nowrap">${_ptgHMAdj(nm)}</td>
     </tr>`;
   }).join('');
