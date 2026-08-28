@@ -615,6 +615,33 @@ deux sens). **Si un futur ajout Realtime sur une table Pointage/RH semble
 ne "rien faire"**, vérifier d'abord `pg_publication_tables` avant de
 suspecter le code client — c'est passé inaperçu pendant ~3 semaines ici.
 
+**Régression RLS anon-only trouvée le 2026-08-28** (repérée par Hugo :
+"la semaine n'est pas verrouillée" alors qu'un ajout de pointage se
+faisait bloquer par "semaine verrouillée"). Cause : le chantier
+authentification (24/08, voir "Chantier 0" plus haut) fait qu'un admin RH
+connecté utilise le rôle Postgres `authenticated`, plus seulement `anon`
+comme avant — mais les policies SELECT de `heures_corrections`/
+`jours_statut`/`semaines_validees` ne visaient que `anon` (seul rôle qui
+existait quand elles ont été écrites). Un admin connecté obtenait donc
+silencieusement 0 ligne sur un accès direct (`db.from(...)`, pas via RPC)
+à ces 3 tables — utilisées justement en accès direct par Rapports et les
+4 vues de Contrôle. Aucun risque de sécurité : les RPC d'écriture
+(`SECURITY DEFINER`) appliquent `_semaine_est_verrouillee()` côté serveur
+indépendamment de RLS, d'où le symptôme révélateur (blocage réel à
+l'écriture, mais bandeau affichant "non verrouillée" puisque la lecture
+du statut, elle, était silencieusement vide). Corrigé (migration
+`20260828070000`, `ALTER POLICY ... TO anon, authenticated`) sur ces 3
+tables, plus `heures_journalieres`/`pointages` par cohérence (celles-ci
+restaient lisibles admin via les vues `heures_rapport_vue`/
+`pointages_rapport_vue` — une vue Postgres s'exécute par défaut avec les
+droits de son propriétaire, pas de l'appelant, donc contournait RLS sans
+que ce soit voulu ; mieux vaut ne pas dépendre de cet effet de bord).
+**Piège pour toute future table RH accédée en direct (`db.from`, pas
+RPC)** : si elle doit être lisible à la fois par le kiosque (anon, sans
+login) et par l'admin RH (authenticated, depuis le chantier auth du
+24/08), sa policy SELECT doit explicitement viser `TO anon, authenticated`
+— `anon` seul ne suffit plus pour l'admin.
+
 ## Limitations connues
 
 Comportements volontairement non gérés ou pas encore corrigés partout — pas
