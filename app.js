@@ -4270,8 +4270,12 @@ function bootAppUnlocked() {
   loadData();
   refresh();
   renderSettings();
-  syncEmployeesFromSupabase({ silent: true });
-  subscribeEmployesChanges();
+  // get_employes_rh (fiche RH complète) est réservée aux admins RH depuis le 2026-10-05 :
+  // le kiosque, anonyme, n'en a pas besoin (PIN/NFC passent par leurs propres RPC).
+  if (!KIOSK_MODE) {
+    syncEmployeesFromSupabase({ silent: true });
+    subscribeEmployesChanges();
+  }
   document.body.classList.toggle('kiosk-mode', KIOSK_MODE);
   if (KIOSK_MODE) showTab('pointage');
 }
