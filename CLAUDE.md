@@ -688,6 +688,16 @@ section directement dans le fichier concerné.
 
 ## Points d'attention
 
+- **Fonctions RH verrouillées côté base (2026-10-05, migration
+  `20261005120000_verrou_fonctions_rh_admin.sql`).** Les 18 fonctions de l'espace admin
+  (congés, contrats, corrections, statuts de jour, semaines, badges NFC, fiche/corbeille/purge
+  salarié) commencent par `PERFORM public._exiger_admin_rh()` : refus (`42501`) si l'appelant
+  n'est pas un compte Supabase Auth lié à un `employes.is_rh_admin`. L'écran de connexion ne
+  suffisait pas : la clé anon est publique. **Toute nouvelle fonction d'admin doit appeler
+  `_exiger_admin_rh()` en première ligne.** Restent volontairement ouvertes : kiosque
+  (`authentifier_par_pin`, `verifier_pointage`, `pointer_par_nfc`, `emettre_signal_nfc`) et
+  celles que la PWA ou Apps Script appellent aussi (`admin_*_pointage`, `get_employes_rh`,
+  `supprimer_employe_rh`, `upsert_employe_pointage`) — phase B à venir.
 - Toujours vérifier/incrémenter le SMIC dans `DEFAULT_SETTINGS` si une
   revalorisation officielle intervient — ne pas l'auto-ajuster sans confirmation.
   Les valeurs CCM (`DEFAULT_CCM`) ne doivent être mises à jour que sur preuve
