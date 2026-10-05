@@ -696,8 +696,13 @@ section directement dans le fichier concerné.
   suffisait pas : la clé anon est publique. **Toute nouvelle fonction d'admin doit appeler
   `_exiger_admin_rh()` en première ligne.** Restent volontairement ouvertes : kiosque
   (`authentifier_par_pin`, `verifier_pointage`, `pointer_par_nfc`, `emettre_signal_nfc`) et
-  celles que la PWA ou Apps Script appellent aussi (`admin_*_pointage`, `get_employes_rh`,
-  `supprimer_employe_rh`, `upsert_employe_pointage`) — phase B à venir.
+  celles que la PWA appelle aussi (`admin_*_pointage`, `supprimer_employe_rh`,
+  `upsert_employe_pointage`) — phase B à venir.
+- **`get_employes_rh` (fiche complète : coordonnées perso, taux horaire, notes) est réservée
+  aux admins RH depuis le 2026-10-05.** Pour l'identité seule (id, nom, prénom, poste,
+  `a_fiche_rh`), utiliser **`get_employes_annuaire()`** — c'est ce que lisent la PWA et Apps
+  Script. Le kiosque (`KIOSK_MODE`) ne charge plus les salariés au démarrage. Principe : chaque
+  appelant ne reçoit que les champs qu'il affiche.
 - Toujours vérifier/incrémenter le SMIC dans `DEFAULT_SETTINGS` si une
   revalorisation officielle intervient — ne pas l'auto-ajuster sans confirmation.
   Les valeurs CCM (`DEFAULT_CCM`) ne doivent être mises à jour que sur preuve
