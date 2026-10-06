@@ -2132,37 +2132,23 @@ async function _ptgSubmit() {
 
   _ptgMsg('Vérification…');
 
-  const { data: auth, error: authErr } = await db.rpc('authentifier_par_pin', { p_pin: _ptg.pin });
-  if (authErr || !auth?.ok) {
+  // PIN + contrôle d'enchaînement + enregistrement en un seul appel, réservé au compte kiosque
+  // ou à un admin RH (remplace authentifier_par_pin + verifier_pointage + insert direct).
+  const { data: res, error } = await db.rpc('pointer_par_pin', { p_pin: _ptg.pin, p_type: _ptg.type });
+  if (error) {
     _ptgShake();
-    _ptgMsg(auth?.message || 'Code PIN incorrect.', 'var(--danger)');
-    _ptgReset(1600);
+    _ptgMsg(error.code === '42501' ? 'Kiosque non connecté — reconnectez le compte kiosque.' : 'Erreur lors de l\'enregistrement.', 'var(--danger)');
+    _ptgReset(2500);
     return;
   }
-
-  const { data: verif, error: verifErr } = await db.rpc('verifier_pointage', {
-    p_employe_id: auth.id,
-    p_type:       _ptg.type,
-  });
-  if (verifErr || !verif?.ok) {
+  if (!res?.ok) {
     _ptgShake();
-    _ptgMsg(verif?.message || 'Pointage non autorisé.', 'var(--danger)');
+    _ptgMsg(res?.message || 'Pointage non autorisé.', 'var(--danger)');
     _ptgReset(2000);
     return;
   }
 
-  const { error: insertErr } = await db.from('pointages').insert({
-    employe_id: auth.id,
-    type:       _ptg.type,
-    source:     'kiosque',
-  });
-  if (insertErr) {
-    _ptgMsg('Erreur lors de l\'enregistrement.', 'var(--danger)');
-    _ptgReset(1800);
-    return;
-  }
-
-  _ptgShowFeedback(auth.nom, auth.prenom, _ptg.type);
+  _ptgShowFeedback(res.nom, res.prenom, _ptg.type);
 }
 
 function _ptgReset(delayMs = 0) {
@@ -4062,13 +4048,15 @@ function _ptgControleJourRender() {
 // se contenter d'être protégée par la seule confidentialité de son URL).
 // ═══════════════════════════════════════════
 async function initAuthGate() {
-  if (KIOSK_MODE) { bootAppUnlocked(); return; } // kiosque : jamais de gate, RPC anonymes dédiées
   const db = window.SupabaseDB;
   if (!db) { bootAppUnlocked(); return; } // pas de config Supabase (dev local) : comportement historique
   if (_authRecoveryPending) return; // déjà géré par l'abonnement enregistré juste après createClient()
 
   const { data: { session } } = await db.auth.getSession();
   if (!session) { showAuthView('login'); return; }
+  // Kiosque (2026-10-06) : connecté une fois avec le compte dédié kiosque@sonotrad.fr (session
+  // gardée sur l'appareil). Le serveur n'accepte les pointages que de ce compte ou d'un admin RH.
+  if (KIOSK_MODE) { bootAppUnlocked(); return; }
   await resolveRoleAndBoot();
 }
 
@@ -4243,6 +4231,7 @@ async function authLogin() {
     password: document.getElementById('auth-password').value,
   });
   if (error) { errEl.textContent = 'Email ou mot de passe incorrect.'; return; }
+  if (KIOSK_MODE) { bootAppUnlocked(); return; }
   await resolveRoleAndBoot();
 }
 
