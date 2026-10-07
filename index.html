@@ -25,6 +25,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="temps.css">
 </head>
 <body>
 
@@ -103,8 +104,7 @@
     <button class="nav-btn active" data-tab="dashboard" onclick="showTab('dashboard')">📊 Dashboard</button>
     <button class="nav-btn" data-tab="team" onclick="showTab('team')">👥 Mon équipe</button>
     <button class="nav-btn" data-tab="optim" onclick="showTab('optim')">🎯 Optimisation</button>
-    <button class="nav-btn" data-tab="pointage" onclick="showTab('pointage')">🕐 Pointage</button>
-    <button class="nav-btn" data-tab="conges" onclick="showTab('conges')">🌴 Congés</button>
+    <button class="nav-btn" data-tab="temps" onclick="showTab('temps')">⏱ Temps & absences</button>
     <button class="nav-btn" data-tab="settings" onclick="showTab('settings')">⚙️ Paramètres</button>
   </nav>
   <div class="header-right">
@@ -122,8 +122,7 @@
   <button class="bnav-btn active" data-tab="dashboard" onclick="showTab('dashboard')"><span class="bn-ico">📊</span>Dashboard</button>
   <button class="bnav-btn" data-tab="team" onclick="showTab('team')"><span class="bn-ico">👥</span>Équipe</button>
   <button class="bnav-btn" data-tab="optim" onclick="showTab('optim')"><span class="bn-ico">🎯</span>Optim.</button>
-  <button class="bnav-btn" data-tab="pointage" onclick="showTab('pointage')"><span class="bn-ico">🕐</span>Pointage</button>
-  <button class="bnav-btn" data-tab="conges" onclick="showTab('conges')"><span class="bn-ico">🌴</span>Congés</button>
+  <button class="bnav-btn" data-tab="temps" onclick="showTab('temps')"><span class="bn-ico">⏱</span>Temps</button>
   <button class="bnav-btn" data-tab="settings" onclick="showTab('settings')"><span class="bn-ico">⚙️</span>Réglages</button>
 </nav>
 
@@ -433,7 +432,12 @@
   </div>
 
   <!-- ═══════════════ TAB: PARAMÈTRES ═══════════════ -->
+  <!-- TEMPS & ABSENCES (temps.js) — remplace Pointage + Congés côté admin -->
+  <div class="tab" id="tab-temps"><div id="ta-root"></div></div>
+
   <div class="tab" id="tab-settings">
+
+    <div class="settings-section" id="ta-settings"></div>
 
     <div class="settings-section">
       <div class="settings-title">💶 Paramètres généraux</div>
@@ -949,6 +953,7 @@
 <div id="ptg-toast" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface3);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 18px;font-size:13px;font-weight:600;z-index:9500;box-shadow:var(--shadow)"></div>
 
 <!-- ═══════════════ SCRIPT ═══════════════ -->
+<script src="temps.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

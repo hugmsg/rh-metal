@@ -1193,6 +1193,7 @@ function renderScenarios() {
 // ═══════════════════════════════════════════
 function renderSettings() {
   renderLastBackupInfo();
+  taRenderSettings();
   document.getElementById('s-smic').value = settings.smic;
   document.getElementById('s-charges').value = settings.charges;
   document.getElementById('s-base-h').value = settings.baseH;
@@ -1664,6 +1665,8 @@ function showTab(id) {
   if (id==='settings') renderSettings();
   if (id==='pointage') ptgShowSubView(_ptgSubView);
   if (id==='conges') renderConges();
+  if (id==='temps') taShow();
+  taRenderDrawer(); // le panneau latéral de Temps & absences ne reste pas affiché sur les autres onglets
 }
 
 // ═══════════════════════════════════════════
@@ -4064,7 +4067,7 @@ async function resolveRoleAndBoot() {
   const db = window.SupabaseDB;
   const { data, error } = await db.rpc('get_mon_role_rh');
   if (error || !data?.ok) { showAuthView('denied'); return; }
-  if (data.is_rh_admin) { bootAppUnlocked(); return; }
+  if (data.is_rh_admin) { window._rhMoi = data; bootAppUnlocked(); return; }
   bootPortalSalarie(data);
 }
 

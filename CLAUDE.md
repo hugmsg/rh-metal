@@ -647,6 +647,38 @@ login) et par l'admin RH (authenticated, depuis le chantier auth du
 24/08), sa policy SELECT doit explicitement viser `TO anon, authenticated`
 — `anon` seul ne suffit plus pour l'admin.
 
+### Onglet « Temps & absences » (2026-10-07) — remplace Pointage + Congés
+
+Code dans `temps.js` / `temps.css` (pas dans `app.js`), markup réduit à `#tab-temps > #ta-root`
+et `#ta-settings` (Paramètres). Maquette validée par Hugo : artifact
+`https://claude.ai/artifact/PGzJcd9fPGz8ELKtFBDkY2`. Migration `20261007120000_temps_absences.sql`.
+
+- **Trois vues** : Aujourd'hui (présents, semaine/mois/CP par salarié, fil des badgeages),
+  Mois (grille salariés × jours, clic jour → panneau, clic « S » → verrouiller la semaine),
+  Clôture paie (points à régler → verrouiller le mois → CSV). Fiche salarié en panneau latéral
+  (résumé + historique du journal). Une fenêtre par action, motif obligatoire partout.
+- **Heures** recalculées côté client depuis les pointages bruts (`get_pointages_periode_rh`,
+  annulés compris) avec la règle du trigger (`taCalc`). **Heures sup** par semaine civile
+  complète au-delà de `heures_ref`, `heures_25` premières à 25 %. **Semaine à cheval** :
+  rattachée au mois de son vendredi (`fin`, défaut) ou de son lundi (`debut`) — `rh_parametres_temps`.
+- **Nouvelles tables** : `rh_journal` (toutes les RPC d'écriture y écrivent via `_journal()`),
+  `mois_clotures` (verrou du mois + suivi d'export, `export_perime` si rouvert après export),
+  `cp_ajustements`, `jours_feries` (remplace l'usage de `jours_statut.ferie`, toujours lu),
+  `rh_parametres_temps` (1 ligne). `conges` : type `autre` + `demi_journee`.
+  `pointages.horodatage_origine` garde l'heure d'avant modification.
+- **Verrous** : `admin_modifier_pointage`/`admin_annuler_pointage`/`supprimer_correction_heures`
+  vérifient enfin la semaine verrouillée (avant : seul l'ajout le faisait). Déverrouiller une
+  semaine rouvre le(s) mois clôturé(s) concerné(s). Verrouiller un mois exige côté client que
+  toutes ses semaines soient verrouillées et aucun jour rouge.
+- **Plus de pause forfaitaire de 20 min** (décision Hugo, 2026-10-07) : le trigger
+  `_sync_heures_journalieres` l'enlevait au-delà de 6 h même quand la pause déjeuner était
+  badgée (double déduction). Seules les pauses pointées sont déduites ; la seule journée
+  concernée en base a été recalculée. `pause_legale_appliquee` reste à `false`.
+- **CSV** : colonnes provisoires (nom, prénom, h normales, HS 25/50, jours CP/MAL/EVT/SS/autre/
+  fériés), `;` + virgule décimale + BOM. À remplacer par le modèle du prestataire de paie.
+- Les anciens onglets Pointage/Congés restent accessibles par un lien en bas de l'onglet
+  pendant la validation (le kiosque `?kiosk=1` utilise toujours `#tab-pointage`).
+
 ## Limitations connues
 
 Comportements volontairement non gérés ou pas encore corrigés partout — pas
