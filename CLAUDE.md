@@ -250,10 +250,15 @@ tant que la session n'est pas résolue. Ce qui s'affiche ensuite dépend du
 RH complet si `is_rh_admin`, sinon écran "accès non autorisé" en
 attendant que le portail lui-même soit construit. **Le mode kiosque
 (`?kiosk=1`) n'est pas concerné** : il contourne entièrement cet écran
-(`KIOSK_MODE` court-circuite `initAuthGate`), il utilise déjà des RPC
-anonymes dédiées (`authentifier_par_pin`/`pointer_par_nfc`) — un
-Raspberry Pi en salle de pause ne peut pas rester connecté en
-permanence avec un compte personnel.
+(`KIOSK_MODE` court-circuite `initAuthGate`). Depuis le 2026-10-06/07, il
+se connecte une fois avec le **compte dédié `kiosque@sonotrad.fr`**
+(table `comptes_kiosque`, pas un compte personnel) et appelle
+`pointer_par_pin` / `pointer_par_nfc`, gardées par
+`_exiger_kiosque_ou_admin_rh()`. Les anciennes RPC anonymes
+(`authentifier_par_pin`, `verifier_pointage`) ne sont plus exécutables
+par anon/authenticated, et plus aucune écriture directe dans `pointages`
+n'est permise (migration `20261006040000_kiosque_fermeture_anon.sql`).
+Seul `emettre_signal_nfc` (pont NFC du Pi) reste appelable par anon.
 
 Nouvelle brique technique : une **Edge Function** (`activer-portail`,
 `supabase/functions/activer-portail/`, déployée via MCP Supabase) crée le
@@ -694,10 +699,11 @@ section directement dans le fichier concerné.
   salarié) commencent par `PERFORM public._exiger_admin_rh()` : refus (`42501`) si l'appelant
   n'est pas un compte Supabase Auth lié à un `employes.is_rh_admin`. L'écran de connexion ne
   suffisait pas : la clé anon est publique. **Toute nouvelle fonction d'admin doit appeler
-  `_exiger_admin_rh()` en première ligne.** Restent volontairement ouvertes : kiosque
-  (`authentifier_par_pin`, `verifier_pointage`, `pointer_par_nfc`, `emettre_signal_nfc`) et
-  celles que la PWA appelle aussi (`admin_*_pointage`, `supprimer_employe_rh`,
-  `upsert_employe_pointage`) — phase B à venir.
+  `_exiger_admin_rh()` en première ligne.** Kiosque (2026-10-07) : `pointer_par_pin` et
+  `pointer_par_nfc` exigent `_exiger_kiosque_ou_admin_rh()` ; `authentifier_par_pin` et
+  `verifier_pointage` ne sont plus exposées ; seul `emettre_signal_nfc` (pont NFC) reste
+  ouvert à anon. Reste à faire : restreindre la **lecture** des tables/vues pointage à
+  authenticated.
 - **`get_employes_rh` (fiche complète : coordonnées perso, taux horaire, notes) est réservée
   aux admins RH depuis le 2026-10-05.** Pour l'identité seule (id, nom, prénom, poste,
   `a_fiche_rh`), utiliser **`get_employes_annuaire()`** — c'est ce que lisent la PWA et Apps
