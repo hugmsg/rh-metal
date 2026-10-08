@@ -684,6 +684,13 @@ et `#ta-settings` (Paramètres). Maquette validée par Hugo : artifact
   Changement refusé s'il toucherait un mois verrouillé ; `cloturer_mois` refuse un mois
   entièrement antérieur. Non fixée = phase de test (bandeau). Toutes les données de
   pointage/congés de test ont été supprimées le 2026-10-08.
+- **Futur et fériés** (2026-10-08, migration `20261008100000_feries_auto_cloture_fin_mois.sql`) :
+  Mois/Clôture navigables jusqu'à 12 mois après le mois en cours (`TA_MOIS_FUTURS`) pour voir
+  les absences prévues. Fériés légaux (11, Pâques calculé par `_paques`) générés par année via
+  `assurer_jours_feries` à la première navigation ; `jours_feries_annees` mémorise les années
+  faites, donc un férié supprimé dans Paramètres ne revient pas. Lundi de Pentecôte = férié
+  chômé chez Sonotrad (confirmé par Hugo). `cloturer_mois` refuse un mois pas terminé ; une
+  semaine n'est verrouillable qu'à partir de son vendredi (contrôle côté client).
 - Les anciens onglets Pointage/Congés restent accessibles par un lien en bas de l'onglet
   pendant la validation (le kiosque `?kiosk=1` utilise toujours `#tab-pointage`).
 

@@ -31,12 +31,14 @@ const TA_CODE = { cp: 'CP', maladie: 'MAL', evenement_familial: 'EVT', sans_sold
 const TA_TYPE = { CP: 'cp', MAL: 'maladie', EVT: 'evenement_familial', SS: 'sans_solde', AUT: 'autre' };
 const TA_ABS = { CP: 'Congé payé', MAL: 'Maladie', EVT: 'Événement familial', SS: 'Sans solde', AUT: 'Autre absence', F: 'Jour férié' };
 const TA_HALF = { am: 'matin', pm: 'après-midi' };
+const TA_MOIS_FUTURS = 12; // navigation Mois / Clôture : jusqu'à 12 mois après le mois en cours
 const TA_SRC = { kiosque: 'PIN', nfc: 'Badge', admin: 'ajout admin', auto: 'auto' };
 
 const TA = {
   tab: 'today', filter: 'all', feedRange: 'today',
   mo: null,              // { y, m } affiché dans Mois et Clôture
   loaded: false, loading: null,
+  holYears: new Set(),   // années dont les fériés ont été générés (jours_feries_annees)
   data: {},              // 'YYYY-MM' → jeu de données du mois (pointages, corrections, verrous)
   cfg: { semaine_cheval: 'fin', heures_ref: 35, heures_25: 8, cp_annuels: 25, debut_pointage: null },
   hol: new Map(), clot: new Map(), cpAdj: [], journal: [], conges: [],
@@ -99,18 +101,20 @@ function taContrat(e) { return +e.heures_semaine || 35; }
 // ── Chargement ──────────────────────────────────────────────────────────────
 async function taLoadGlobals() {
   const db = window.SupabaseDB;
-  const [cfg, hol, clot, adj, jr, cg] = await Promise.all([
+  const [cfg, hol, clot, adj, jr, cg, hy] = await Promise.all([
     db.from('rh_parametres_temps').select('*').maybeSingle(),
     db.from('jours_feries').select('*').order('date'),
     db.from('mois_clotures').select('*'),
     db.from('cp_ajustements').select('*').order('created_at'),
     db.from('rh_journal').select('*').order('at', { ascending: false }).limit(300),
     db.rpc('get_conges_rh'),
+    db.from('jours_feries_annees').select('annee'),
   ]);
-  const err = [cfg, hol, clot, adj, jr, cg].find(r => r.error);
+  const err = [cfg, hol, clot, adj, jr, cg, hy].find(r => r.error);
   if (err) throw err.error;
   if (cfg.data) TA.cfg = { semaine_cheval: cfg.data.semaine_cheval, heures_ref: +cfg.data.heures_ref, heures_25: +cfg.data.heures_25, cp_annuels: +cfg.data.cp_annuels, debut_pointage: cfg.data.debut_pointage || null };
   TA.hol = new Map((hol.data || []).map(h => [h.date, h.libelle]));
+  TA.holYears = new Set((hy.data || []).map(r => r.annee));
   TA.clot = new Map((clot.data || []).map(c => [c.mois.slice(0, 7), c]));
   TA.cpAdj = adj.data || [];
   TA.journal = jr.data || [];
@@ -144,6 +148,23 @@ async function taLoadMonth(mo, into) {
 function taDs(mo) { return TA.data[taMonthKey(mo.y, mo.m)] || null; }
 function taCurMo() { return taMonthOf(taToday()); }
 
+// Fériés légaux générés côté serveur une fois par année (assurer_jours_feries) ;
+// une année déjà générée ne l'est plus, donc un férié supprimé ne revient pas.
+function taHolYearsFor(mo) { return mo.m === 12 ? [mo.y, mo.y + 1] : mo.m === 1 ? [mo.y - 1, mo.y] : [mo.y]; }
+async function taEnsureHolidays(years) {
+  const db = window.SupabaseDB, miss = [...new Set(years)].filter(y => !TA.holYears.has(y));
+  let added = false;
+  for (const y of miss) {
+    const { data, error } = await db.rpc('assurer_jours_feries', { p_annee: y });
+    if (error || !data || !data.ok) continue;
+    TA.holYears.add(y);
+    if (data.nouveau) added = true;
+  }
+  if (!added) return;
+  const { data } = await db.from('jours_feries').select('*').order('date');
+  if (data) TA.hol = new Map(data.map(h => [h.date, h.libelle]));
+}
+
 async function taReloadAll() {
   if (!employees.length) await syncEmployeesFromSupabase({ silent: true });
   const want = [taCurMo(), taShiftMonth(taCurMo(), -1)];
@@ -153,6 +174,8 @@ async function taReloadAll() {
   // Charge dans un nouvel objet puis remplace d'un coup : l'écran reste utilisable pendant le rechargement.
   const fresh = {};
   await taLoadGlobals();
+  const cur = taCurMo();
+  await taEnsureHolidays([cur.y, cur.y + 1, ...uniq.flatMap(taHolYearsFor)]);
   await Promise.all(uniq.map(m => taLoadMonth(m, fresh)));
   TA.data = fresh;
 }
@@ -468,7 +491,7 @@ const TA_CELL = { work: 'c-work', CP: 'c-cp', MAL: 'c-mal', EVT: 'c-evt', SS: 'c
 
 function taMonthNav() {
   const mo = TA.mo, key = taMonthKey(mo.y, mo.m), c = TA.clot.get(key), cur = taCurMo();
-  const next = taShiftMonth(mo, 1), nextDis = next.y * 12 + next.m > cur.y * 12 + cur.m;
+  const next = taShiftMonth(mo, 1), nextDis = next.y * 12 + next.m > cur.y * 12 + cur.m + TA_MOIS_FUTURS;
   const sub = c && c.cloture ? 'clôturé' + (c.exporte_le ? (c.export_perime ? ' · export à refaire' : ' · exporté') : '')
     : (key === taMonthKey(cur.y, cur.m) ? 'en cours' : taWeeks(mo).reduce((s, w) => s + w.days.filter(d => !TA.hol.has(d)).length, 0) + ' jours ouvrés');
   return `<div class="ta-monthnav">
@@ -481,7 +504,7 @@ async function taGoMonth(n) {
   const mo = taShiftMonth(TA.mo, n);
   TA.mo = mo; TA.drawer = null;
   if (!taDs(mo)) {
-    try { await taLoadMonth(mo); } catch (e) { ptgToast('⚠ ' + (e.message || e)); }
+    try { await taEnsureHolidays(taHolYearsFor(mo)); await taLoadMonth(mo); } catch (e) { ptgToast('⚠ ' + (e.message || e)); }
   }
   taRender();
 }
@@ -577,7 +600,8 @@ function taRenderClose() {
   const blockers = closed ? [] : taBlockers(ds), noBlock = blockers.length === 0;
   const fname = 'paie-' + key + '.csv';
   const badge = st => `<span class="ta-step ${st}">${st === 'done' ? '✓' : ''}</span>`;
-  const s1 = noBlock || closed ? 'done' : 'on', s2 = closed ? 'done' : (noBlock ? 'on' : 'off'), s3 = closed ? (c.exporte_le && !c.export_perime ? 'done' : 'on') : 'off';
+  const today = taToday(), pending = ds.last >= today, canLock = noBlock && !pending;
+  const s1 = noBlock || closed ? 'done' : 'on', s2 = closed ? 'done' : (canLock ? 'on' : 'off'), s3 = closed ? (c.exporte_le && !c.export_perime ? 'done' : 'on') : 'off';
   const rows = taCsvRows(ds);
   const tot = rows.reduce((t, r) => { t.h += r.m.hours; t.hs25 += r.m.hs25; t.hs50 += r.m.hs50; return t; }, { h: 0, hs25: 0, hs50: 0 });
   let exportNote = '';
@@ -592,7 +616,10 @@ function taRenderClose() {
   if (debut && taAvant(ds.last)) return `${taMonthNav()}<div class="ta-note">${taCap(taMonthLabel(mo))} est antérieur à la mise en service du pointage (${taEsc(taNice(debut))} ${debut.slice(0, 4)}) : rien à clôturer.</div>`;
   const phase = !debut ? taNote('Phase de test : la date de mise en service du pointage n’est pas fixée (Paramètres → Temps de travail). Ne transmets rien au prestataire tant qu’elle ne l’est pas.', 'warn')
     : debut > ds.first ? taNote(`Mois de mise en service : seuls les jours à partir du ${taEsc(taNice(debut))} comptent.`) : '';
+  if (ds.first > today) return `${taMonthNav()}${phase}<div class="ta-note">${taCap(taMonthLabel(mo))} n’a pas commencé : rien à clôturer. Les absences prévues sont visibles dans l’onglet Mois.</div>`;
+  const nextFirst = taAdd(ds.last, 1);
   return `${taMonthNav()}${phase}
+    ${pending ? taNote(`Mois en cours : il pourra être verrouillé à partir du ${taEsc(taNice(nextFirst))}.`) : ''}
     <div class="ta-steps">
       <div class="ta-card ta-stepcard"><div class="ta-stephead">${badge(s1)}<b>1. Régler les points ouverts</b><span class="ta-small">${closed ? 'mois clôturé' : noBlock ? 'tout est réglé' : blockers.length + ' point(s)'}</span></div>
         ${blockers.map(b => `<div class="ta-block"><span class="ta-bdot ${b.kind}"></span><div><b>${taEsc(b.title)}</b><div class="ta-small">${taEsc(b.sub)}</div></div>
@@ -601,8 +628,8 @@ function taRenderClose() {
       <div class="ta-card ta-stepcard"><div class="ta-stephead">${badge(s2)}<b>2. Verrouiller le mois</b></div>
         ${closed ? `<div class="ta-small">Verrouillé le ${taShort(c.cloture_le.slice(0, 10))} par ${taEsc(c.cloture_par || '')}.</div>
           <button class="btn btn-ghost btn-sm" onclick="taOpen('unlockMonth',{})">Déverrouiller…</button>`
-        : `<div class="ta-small">Possible quand l’étape 1 est terminée.</div>
-          <button class="btn btn-primary btn-sm" ${noBlock ? '' : 'disabled'} onclick="taOpen('lockMonth',{})">Verrouiller ${TA_MOIS_L[mo.m - 1]}</button>`}</div>
+        : `<div class="ta-small">${pending ? 'Possible une fois le mois terminé et l’étape 1 réglée.' : 'Possible quand l’étape 1 est terminée.'}</div>
+          <button class="btn btn-primary btn-sm" ${canLock ? '' : 'disabled'} onclick="taOpen('lockMonth',{})">Verrouiller ${TA_MOIS_L[mo.m - 1]}</button>`}</div>
       <div class="ta-card ta-stepcard"><div class="ta-stephead">${badge(s3)}<b>3. Exporter pour la paie</b></div>
         ${exportNote}
         <button class="btn btn-primary btn-sm" ${closed ? '' : 'disabled'} onclick="taDownloadCsv()">${c && c.exporte_le && !c.export_perime ? 'Retélécharger' : 'Télécharger'} ${fname}</button></div>
@@ -1012,6 +1039,7 @@ const TA_MODALS = {
     info: M => {
       const errs = [];
       if (M._allLocked) { if (!String(M.motif || '').trim()) errs.push('Un motif est obligatoire pour déverrouiller.'); }
+      else if (taAdd(M.mon, 4) > taToday()) errs.push('Semaine pas encore terminée : verrouillable à partir du vendredi.');
       else if (!M._ready.length) errs.push('Aucun salarié prêt.');
       return { html: '', errs };
     },
@@ -1088,7 +1116,12 @@ const TA_MODALS = {
         + (TA.cfg.debut_pointage && TA.cfg.debut_pointage > ds.first ? taNote(`Jours avant le ${taNice(TA.cfg.debut_pointage)} (mise en service) non comptés.`) : '')
         + taNote(`Après verrouillage, toute modification de ${TA_MOIS_L[TA.mo.m - 1]} demandera de déverrouiller avec un motif.`, 'warn');
     },
-    info: () => { const ds = taDs(TA.mo); return { html: '', errs: taBlockers(ds).length ? ['Il reste des points à régler (étape 1).'] : [] }; },
+    info: () => {
+      const ds = taDs(TA.mo), errs = [];
+      if (ds.last >= taToday()) errs.push('Le mois n’est pas terminé.');
+      if (taBlockers(ds).length) errs.push('Il reste des points à régler (étape 1).');
+      return { html: '', errs };
+    },
     save: () => 'Verrouiller ' + TA_MOIS_L[TA.mo.m - 1],
     run: M => window.SupabaseDB.rpc('cloturer_mois', { p_mois: taMonthFirst(TA.mo.y, TA.mo.m), p_resume: M._resume }),
     done: () => taCap(TA_MOIS_L[TA.mo.m - 1]) + ' verrouillé',
