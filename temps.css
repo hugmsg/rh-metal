@@ -22,7 +22,8 @@
 .ta-legacy a{color:var(--muted)}
 .ta-link{background:none;border:none;color:var(--text);font:inherit;font-weight:600;cursor:pointer;padding:0;text-align:left}
 .ta-link:hover{color:var(--accent);text-decoration:underline}
-.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Limité aux tableaux de l’onglet : .num sert aussi ailleurs (KPI du Dashboard). */
+.ta-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* Tableaux (la règle globale table{min-width:1100px} vise l'onglet Équipe) */
 table.ta-table{width:100%;min-width:0;border-collapse:collapse;font-size:13px}
@@ -62,6 +63,9 @@ table.ta-table{width:100%;min-width:0;border-collapse:collapse;font-size:13px}
 /* Mois */
 .ta-monthnav{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .ta-monthnav b{font-size:16px}
+/* Largeur fixe : les flèches ne bougent pas d’un mois à l’autre (clics rapides). */
+.ta-monthnav>div{width:210px;text-align:center}
+.ta-monthnav>div .ta-small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ta-legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;margin-bottom:10px}
 .ta-legend span{display:inline-flex;align-items:center;gap:5px}
 .ta-legend .ta-cell{height:22px;min-width:26px;display:inline-flex;font-style:normal;cursor:default}
