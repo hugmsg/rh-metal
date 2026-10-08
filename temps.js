@@ -1113,6 +1113,10 @@ const TA_MODALS = {
         <input type="checkbox" ${M.ok ? 'checked' : ''} onchange="taMSet('ok',this.checked)" style="margin-top:2px">
         <span>${M.add ? 'Je confirme donner à cette personne l’accès à toutes les données RH.' : (a && a.moi ? 'Je confirme retirer mon propre accès.' : 'Je confirme retirer cet accès.')}</span></label></div>`;
       const motif = taFIn('Motif (obligatoire)', 'motif', 'text', { full: true, ph: M.add ? 'ex : suivi de la paie' : 'ex : départ, changement de poste' });
+      if (M.add && taAdminBloque(M))
+        return taNote('Personne ne peut encore être nommé : il faut un <b>compte de connexion</b>. Ouvre la fiche du salarié (Mon équipe), renseigne son e-mail perso puis clique sur « Activer l’accès portail ». Une fois son mot de passe choisi, il apparaîtra ici.', 'warn');
+      if (!M.add && taAdminBloque(M))
+        return taNote(`<b>${taEsc(a.prenom + ' ' + a.nom)}</b> est le dernier administrateur RH : il ne peut pas être retiré. Nommes-en d’abord un autre avec « Ajouter un administrateur… ».`, 'bad');
       if (M.add) return taFSel('Salarié (compte de connexion lié)', 'emp', A.filter(x => !x.is_rh_admin && x.compte).map(x => [x.id, x.prenom + ' ' + x.nom]), true)
         + taNote('Un administrateur RH voit et modifie tout : salaires, contrats, coordonnées, pointages, congés. Il peut verrouiller les mois, exporter la paie et gérer les autres administrateurs.', 'warn')
         + chk + motif;
@@ -1122,12 +1126,13 @@ const TA_MODALS = {
     },
     info: M => {
       const errs = [], A = Array.isArray(TA.admins) ? TA.admins : [], a = A.find(x => x.id === M.emp);
+      if (taAdminBloque(M)) return { html: '', errs: ['Impossible pour le moment.'] };
       if (!a) errs.push(M.add ? 'Choisis un salarié.' : 'Administrateur introuvable.');
       else if (!M.add && a.compte && taAdminsOk().length <= 1) errs.push('C’est le dernier administrateur : nommes-en un autre d’abord.');
       if (!M.ok) errs.push('Coche la confirmation.');
       return { html: '', errs };
     },
-    motif: true, save: M => M.add ? 'Nommer administrateur' : 'Retirer l’accès', cls: M => M.add ? 'btn-primary' : 'btn-danger',
+    motif: M => !taAdminBloque(M), save: M => M.add ? 'Nommer administrateur' : 'Retirer l’accès', cls: M => M.add ? 'btn-primary' : 'btn-danger',
     run: async M => {
       const r = await window.SupabaseDB.rpc('definir_admin_rh', { p_employe_id: M.emp, p_admin: !!M.add, p_motif: M.motif.trim() });
       if (!r.error && r.data && r.data.ok) {
@@ -1239,7 +1244,7 @@ function taRenderModal() {
 
 function taModalErrs() {
   const M = TA.modal, def = TA_MODALS[M.kind], r = def.info(M);
-  if (def.motif && !String(M.motif || '').trim() && !r.errs.includes('Le motif est obligatoire.')) r.errs.push('Le motif est obligatoire.');
+  if (taVal(def.motif, M) && !String(M.motif || '').trim() && !r.errs.includes('Le motif est obligatoire.')) r.errs.push('Le motif est obligatoire.');
   return r;
 }
 function taModalInfo() {
@@ -1405,6 +1410,10 @@ async function taLoadAdmins() {
   taRenderSettings();
 }
 function taAdminsOk() { return Array.isArray(TA.admins) ? TA.admins.filter(a => a.is_rh_admin && a.compte) : []; }
+function taAdminBloque(M) {
+  const A = Array.isArray(TA.admins) ? TA.admins : [], a = A.find(x => x.id === M.emp);
+  return M.add ? !A.some(x => !x.is_rh_admin && x.compte) : !!(a && a.compte && taAdminsOk().length <= 1);
+}
 function taAdminCard() {
   const A = TA.admins;
   const head = `<div class="ta-label">Administrateurs RH</div>
@@ -1416,13 +1425,13 @@ function taAdminCard() {
     const tags = [a.moi ? 'toi' : '', !a.compte ? 'pas de compte lié' : '', a.date_sortie && a.date_sortie < today ? 'hors effectif' : ''].filter(Boolean).join(' · ');
     const lock = last && a.compte;
     return `<div class="ta-row ta-holrow"><span><b>${taEsc(a.prenom)} ${taEsc(a.nom)}</b>${tags ? ` <span class="ta-small">${taEsc(tags)}</span>` : ''}</span>
-      <button class="btn btn-ghost btn-xs" ${lock ? 'disabled title="Dernier administrateur : nommes-en un autre avant de le retirer"' : ''} onclick="taOpen('admin',{emp:'${a.id}',add:false,ok:false})">Retirer…</button></div>`;
+      <button class="btn btn-ghost btn-xs" ${lock ? 'title="Dernier administrateur : nommes-en un autre avant de le retirer"' : ''} onclick="taOpen('admin',{emp:'${a.id}',add:false,ok:false})">Retirer…</button></div>`;
   }).join('');
   const cands = A.filter(a => !a.is_rh_admin && a.compte).length;
   return `<div>${head}<div class="ta-hols">${rows}</div>
     ${last ? taNote('Un seul administrateur : il ne peut pas être retiré ni mis à la corbeille. Nommer un deuxième admin évite d’être bloqué.', 'warn') : ''}
     <div class="ta-row" style="gap:6px;margin-top:8px;justify-content:flex-start">
-      <button class="btn btn-ghost btn-sm" ${cands ? '' : 'disabled'} onclick="taOpen('admin',{add:true,ok:false})">Ajouter un administrateur…</button></div>
+      <button class="btn btn-ghost btn-sm" onclick="taOpen('admin',{add:true,ok:false})">Ajouter un administrateur…</button></div>
     ${cands ? '' : '<div class="ta-small" style="margin-top:6px">Pour ajouter quelqu’un, active d’abord son accès portail dans sa fiche salarié (compte de connexion).</div>'}</div>`;
 }
 
