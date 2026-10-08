@@ -4254,6 +4254,31 @@ async function authLogin() {
   await resolveRoleAndBoot();
 }
 
+// Mot de passe oublié : Supabase envoie un lien (type=recovery) qui ramène sur
+// l'écran « nouveau mot de passe » (voir _authRecoveryPending). Même message
+// que le compte existe ou non, pour ne pas révéler qui a un accès.
+async function authForgotPassword() {
+  const db = window.SupabaseDB;
+  const msg = document.getElementById('auth-forgot-msg');
+  const btn = document.getElementById('auth-forgot-btn');
+  document.getElementById('auth-login-error').textContent = '';
+  const email = document.getElementById('auth-email').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = 'Saisis ton adresse e-mail ci-dessus, puis clique à nouveau sur « Mot de passe oublié ? ».';
+    return;
+  }
+  btn.disabled = true;
+  const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  btn.disabled = false;
+  msg.style.color = 'var(--muted)';
+  if (error && (error.status === 429 || /rate|seconds/i.test(error.message || ''))) {
+    msg.textContent = 'Trop de demandes rapprochées : patiente une minute avant de réessayer.';
+    return;
+  }
+  msg.textContent = `Si un compte existe pour ${email}, un e-mail avec un lien pour choisir un nouveau mot de passe vient d'être envoyé. Pense à regarder dans les indésirables.`;
+}
+
 async function authSetPassword() {
   const db = window.SupabaseDB;
   const errEl = document.getElementById('auth-setpw-error');

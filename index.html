@@ -45,11 +45,13 @@
       <div class="fg" style="margin-bottom:16px"><label>Mot de passe</label><input id="auth-password" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')authLogin()"></div>
       <button class="btn btn-primary" style="width:100%" onclick="authLogin()">Se connecter</button>
       <div id="auth-login-error" style="color:var(--danger);font-size:12px;margin-top:10px;text-align:center"></div>
+      <div style="text-align:center;margin-top:14px"><button type="button" id="auth-forgot-btn" class="btn btn-ghost btn-xs" onclick="authForgotPassword()">Mot de passe oublié ?</button></div>
+      <div id="auth-forgot-msg" style="font-size:12px;color:var(--muted);margin-top:8px;text-align:center"></div>
     </div>
 
     <!-- Définir mot de passe (1ère connexion après invitation) -->
     <div id="auth-view-setpw" style="display:none">
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;text-align:center">Bienvenue — définissez votre mot de passe pour activer votre accès.</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px;text-align:center">Choisissez votre mot de passe pour accéder à votre compte.</div>
       <div class="fg" style="margin-bottom:16px"><label>Nouveau mot de passe (6 caractères min.)</label><input id="auth-newpw" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')authSetPassword()"></div>
       <button class="btn btn-primary" style="width:100%" onclick="authSetPassword()">Définir mon mot de passe</button>
       <div id="auth-setpw-error" style="color:var(--danger);font-size:12px;margin-top:10px;text-align:center"></div>
