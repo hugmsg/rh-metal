@@ -676,6 +676,14 @@ et `#ta-settings` (Paramètres). Maquette validée par Hugo : artifact
   concernée en base a été recalculée. `pause_legale_appliquee` reste à `false`.
 - **CSV** : colonnes provisoires (nom, prénom, h normales, HS 25/50, jours CP/MAL/EVT/SS/autre/
   fériés), `;` + virgule décimale + BOM. À remplacer par le modèle du prestataire de paie.
+- **Mise en service** (2026-10-08, migration `20261008090000_debut_pointage.sql`) :
+  `rh_parametres_temps.debut_pointage`, fixée par Hugo dans Paramètres une fois la date donnée
+  par le prestataire de paie (RPC `definir_debut_pointage`, motif + case de confirmation,
+  journalisée). Jours antérieurs = `kind 'hors'` + `avant` dans `taDay` (pas d'heures, pas de
+  rouge, pas d'export) ; la présence en direct (`taDayRaw`) reste visible pour les tests.
+  Changement refusé s'il toucherait un mois verrouillé ; `cloturer_mois` refuse un mois
+  entièrement antérieur. Non fixée = phase de test (bandeau). Toutes les données de
+  pointage/congés de test ont été supprimées le 2026-10-08.
 - Les anciens onglets Pointage/Congés restent accessibles par un lien en bas de l'onglet
   pendant la validation (le kiosque `?kiosk=1` utilise toujours `#tab-pointage`).
 

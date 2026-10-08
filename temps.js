@@ -18,6 +18,9 @@
 // heures_ref, les heures_25 premières à 25 %, au-delà 50 %. Une semaine à
 // cheval sur deux mois est rattachée au mois de son vendredi (réglage
 // « fin ») ou de son lundi (« debut ») — table rh_parametres_temps.
+// Mise en service (rh_parametres_temps.debut_pointage, fixée avec le prestataire
+// de paie) : les jours antérieurs ne comptent pas (ni heures, ni alerte, ni
+// export). Tant qu'elle n'est pas fixée, l'onglet est en phase de test.
 // Écritures uniquement via RPC (journalisées côté serveur dans rh_journal).
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -35,7 +38,7 @@ const TA = {
   mo: null,              // { y, m } affiché dans Mois et Clôture
   loaded: false, loading: null,
   data: {},              // 'YYYY-MM' → jeu de données du mois (pointages, corrections, verrous)
-  cfg: { semaine_cheval: 'fin', heures_ref: 35, heures_25: 8, cp_annuels: 25 },
+  cfg: { semaine_cheval: 'fin', heures_ref: 35, heures_25: 8, cp_annuels: 25, debut_pointage: null },
   hol: new Map(), clot: new Map(), cpAdj: [], journal: [], conges: [],
   drawer: null, empTab: 'sum', empLog: null, draft: null, modal: null, busy: false,
   holDate: '', holName: '', channel: null, _reload: null,
@@ -106,7 +109,7 @@ async function taLoadGlobals() {
   ]);
   const err = [cfg, hol, clot, adj, jr, cg].find(r => r.error);
   if (err) throw err.error;
-  if (cfg.data) TA.cfg = { semaine_cheval: cfg.data.semaine_cheval, heures_ref: +cfg.data.heures_ref, heures_25: +cfg.data.heures_25, cp_annuels: +cfg.data.cp_annuels };
+  if (cfg.data) TA.cfg = { semaine_cheval: cfg.data.semaine_cheval, heures_ref: +cfg.data.heures_ref, heures_25: +cfg.data.heures_25, cp_annuels: +cfg.data.cp_annuels, debut_pointage: cfg.data.debut_pointage || null };
   TA.hol = new Map((hol.data || []).map(h => [h.date, h.libelle]));
   TA.clot = new Map((clot.data || []).map(c => [c.mois.slice(0, 7), c]));
   TA.cpAdj = adj.data || [];
@@ -222,8 +225,16 @@ function taCongeOn(empId, iso) {
   return TA.conges.find(c => c.employe_id === empId && c.date_debut <= iso && c.date_fin >= iso) || null;
 }
 
+// Avant la mise en service du pointage ?
+function taAvant(iso) { return !!TA.cfg.debut_pointage && iso < TA.cfg.debut_pointage; }
+
 // État d'un jour pour un salarié. kind : hors | we | abs | work | empty | todo | future
+// Avant la mise en service : « hors » (avant: true), comme un jour hors contrat.
 function taDay(ds, empId, iso) {
+  if (taAvant(iso)) return { kind: 'hors', avant: true, hours: 0, iso, punches: [], corr: [], corrMin: 0 };
+  return taDayRaw(ds, empId, iso);
+}
+function taDayRaw(ds, empId, iso) {
   const e = taEmp(empId), k = empId + '|' + iso, today = taToday();
   if (!e || !taInContract(e, iso)) return { kind: 'hors', hours: 0, iso };
   const all = (ds.punches.get(k) || []).slice().sort((a, b) => a.horodatage < b.horodatage ? -1 : 1);
@@ -271,7 +282,7 @@ function taHs(fullH) { const over = Math.max(0, fullH - TA.cfg.heures_ref); retu
 function taLocked(ds, empId, mon) { return ds.locks.has(empId + '|' + mon); }
 function taWeekFull(ds, empId, mon) { let t = 0; for (let i = 0; i < 7; i++) t += taDay(ds, empId, taAdd(mon, i)).hours; return t; }
 function taWeekBad(ds, empId, mon) { let n = 0; for (let i = 0; i < 7; i++) if (taDay(ds, empId, taAdd(mon, i)).bad) n++; return n; }
-function taEmpInWeek(e, mon) { return taInContract(e, mon) || taInContract(e, taAdd(mon, 4)); }
+function taEmpInWeek(e, mon) { return (taInContract(e, mon) || taInContract(e, taAdd(mon, 4))) && !taAvant(taAdd(mon, 4)); }
 
 function taMonthSum(ds, empId) {
   const mo = ds.mo, key = taMonthKey(mo.y, mo.m);
@@ -358,7 +369,7 @@ function taRender() {
 
 // ── Aujourd'hui ─────────────────────────────────────────────────────────────
 function taTodayOf(ds, e) {
-  const today = taToday(), dd = taDay(ds, e.id, today);
+  const today = taToday(), dd = taDayRaw(ds, e.id, today);
   const valid = dd.punches ? dd.punches.filter(p => p.valide) : [];
   const firstE = valid.find(p => p.type === 'ENTREE'), lastE = valid.slice().reverse().find(p => p.type === 'ENTREE');
   const lastS = valid.slice().reverse().find(p => p.type === 'SORTIE');
@@ -409,7 +420,9 @@ function taRenderToday() {
   // Alertes : mois précédent pas clôturé.
   const prev = taShiftMonth(taCurMo(), -1), pds = taDs(prev), pc = TA.clot.get(taMonthKey(prev.y, prev.m));
   let alerts = '';
-  if (pds && !(pc && pc.cloture)) {
+  if (!TA.cfg.debut_pointage) alerts = `<div class="ta-alert info"><span>Phase de test : la date de mise en service du pointage n’est pas fixée. Rien n’est à clôturer pour la paie tant qu’elle ne l’est pas.</span>
+      <button class="btn btn-ghost btn-sm" onclick="showTab('settings')">Paramètres</button></div>`;
+  else if (pds && !(pc && pc.cloture) && !taAvant(pds.last)) {
     const n = taIssues(pds).length;
     alerts = `<div class="ta-alert"><span>${taCap(taMonthLabel(prev))} n’est pas clôturé${n ? ' : ' + n + ' jour(s) à régler' : ''} avant l’export paie.</span>
       <button class="btn btn-ghost btn-sm" onclick="taGo({tab:'close',mo:{y:${prev.y},m:${prev.m}},drawer:null})">Ouvrir la clôture</button></div>`;
@@ -575,7 +588,11 @@ function taRenderClose() {
       : `<div class="ta-note good">Exporté le ${at} par ${taEsc(c.exporte_par || '')} · ${fname} (séparateur « ; », décimales à virgule).</div>`;
   }
   const attachTxt = taWeeks(mo).filter(w => w.cross).map(w => `S${w.n} → ${TA_MOIS_L[+w.attach.slice(5) - 1]}`).join(', ');
-  return `${taMonthNav()}
+  const debut = TA.cfg.debut_pointage;
+  if (debut && taAvant(ds.last)) return `${taMonthNav()}<div class="ta-note">${taCap(taMonthLabel(mo))} est antérieur à la mise en service du pointage (${taEsc(taNice(debut))} ${debut.slice(0, 4)}) : rien à clôturer.</div>`;
+  const phase = !debut ? taNote('Phase de test : la date de mise en service du pointage n’est pas fixée (Paramètres → Temps de travail). Ne transmets rien au prestataire tant qu’elle ne l’est pas.', 'warn')
+    : debut > ds.first ? taNote(`Mois de mise en service : seuls les jours à partir du ${taEsc(taNice(debut))} comptent.`) : '';
+  return `${taMonthNav()}${phase}
     <div class="ta-steps">
       <div class="ta-card ta-stepcard"><div class="ta-stephead">${badge(s1)}<b>1. Régler les points ouverts</b><span class="ta-small">${closed ? 'mois clôturé' : noBlock ? 'tout est réglé' : blockers.length + ' point(s)'}</span></div>
         ${blockers.map(b => `<div class="ta-block"><span class="ta-bdot ${b.kind}"></span><div><b>${taEsc(b.title)}</b><div class="ta-small">${taEsc(b.sub)}</div></div>
@@ -663,7 +680,9 @@ function taDrawerDay(e, iso) {
     <button class="btn btn-ghost btn-sm" onclick="taOpen('unlockWeek',{emp:'${e.id}',mon:'${mon}'})">Déverrouiller…</button></div>`;
   let body = '';
   const absNew = `taOpen('abs',{emp:'${e.id}',from:'${iso}',to:'${iso}'})`, corrNew = `taOpen('corr',{emp:'${e.id}',date:'${iso}'})`;
-  if (dd.kind === 'hors') body = '<div class="ta-note">Hors contrat ce jour-là (avant l’entrée ou après la sortie).</div>';
+  if (dd.kind === 'hors') body = dd.avant
+    ? `<div class="ta-note">Avant la mise en service du pointage (${taEsc(taNice(TA.cfg.debut_pointage))}) : ce jour ne compte pas.</div>`
+    : '<div class="ta-note">Hors contrat ce jour-là (avant l’entrée ou après la sortie).</div>';
   else if (TA.draft && TA.draft.key === e.id + '|' + iso) {
     const d = TA.draft, f = (lbl, k) => `<div class="fg"><label>${lbl}</label><input type="time" value="${d[k]}" oninput="TA.draft.${k}=this.value;taDraftCheck()"></div>`;
     body = `<div class="ta-sec"><b>Ajouter ses pointages</b><div class="ta-small">4 pointages « ajout admin » avec ton motif. Laisse vide l’après-midi pour une demi-journée.</div>
@@ -1015,6 +1034,47 @@ const TA_MODALS = {
     run: M => window.SupabaseDB.rpc('deverrouiller_semaine_pour', { p_employes: [M.emp], p_semaine_debut: M.mon, p_motif: M.motif.trim() }),
     done: 'Semaine déverrouillée',
   },
+  debut: {
+    title: M => M.clear ? 'Retirer la date de mise en service' : (TA.cfg.debut_pointage ? 'Changer la date de mise en service' : 'Fixer la date de mise en service'),
+    sub: () => 'À faire une fois que le prestataire de paie a donné la date de démarrage. Inscrit au journal.',
+    fields: M => {
+      const cur = TA.cfg.debut_pointage;
+      const chk = `<div class="fg full"><label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">
+        <input type="checkbox" ${M.ok ? 'checked' : ''} onchange="taMSet('ok',this.checked)" style="margin-top:2px">
+        <span>${M.clear ? 'Je confirme : retour en phase de test, plus aucun mois ne pourra être clôturé tant qu’une date ne sera pas refixée.' : 'Je confirme que cette date a été convenue avec le prestataire de paie.'}</span></label></div>`;
+      if (M.clear) return taNote(`Date actuelle : ${taEsc(taNice(cur))} ${cur.slice(0, 4)}. Sans date, tous les jours repassent en contrôle (jours sans pointage en rouge).`, 'warn')
+        + chk + taFIn('Motif (obligatoire)', 'motif', 'text', { full: true, ph: 'ex : démarrage repoussé par le prestataire' });
+      return (cur ? taNote(`Date actuelle : ${taEsc(taNice(cur))} ${cur.slice(0, 4)}. La changer modifie les heures des jours entre l’ancienne et la nouvelle date.`, 'warn') : '')
+        + taFIn('Premier jour pris en compte', 'date', 'date') + '<div></div>' + chk
+        + taFIn('Motif (obligatoire)', 'motif', 'text', { full: true, ph: 'ex : démarrage convenu avec le cabinet de paie' });
+    },
+    info: M => {
+      const errs = [], cur = TA.cfg.debut_pointage, d = M.date || '';
+      let html = '';
+      if (!M.clear) {
+        if (!/^\d{4}-\d\d-\d\d$/.test(d)) errs.push('Choisis une date.');
+        else if (d < '2026-01-01' || d > taAdd(taToday(), 365)) errs.push('Date hors limites.');
+        else if (d === cur) errs.push('C’est déjà la date actuelle.');
+        else {
+          const w = [];
+          w.push(`Tous les jours avant le ${taNice(d)} ${d.slice(0, 4)} seront ignorés : pas d’heures, pas de jour en rouge, rien dans l’export paie. Les badgeages restent enregistrés mais ne comptent pas.`);
+          if (d < taToday()) w.push('Cette date est passée : les jours depuis le ' + taNice(d) + ' vont apparaître dans les contrôles (jours sans pointage en rouge).');
+          if (d.slice(8) !== '01') w.push('La paie démarre en général le 1er du mois : vérifie avec le prestataire.');
+          if (!taIsWeekday(d)) w.push('Ce jour tombe un week-end.');
+          html = w.map((t, i) => taNote(taEsc(t), i ? 'warn' : '')).join('');
+        }
+      }
+      if (!M.ok) errs.push('Coche la confirmation.');
+      return { html, errs };
+    },
+    motif: true, save: M => M.clear ? 'Retirer la date' : 'Enregistrer la date', cls: M => M.clear ? 'btn-danger' : 'btn-primary',
+    run: async M => {
+      const r = await window.SupabaseDB.rpc('definir_debut_pointage', { p_date: M.clear ? null : M.date, p_motif: M.motif.trim() });
+      if (!r.error && r.data && r.data.ok) { TA.cfg.debut_pointage = M.clear ? null : M.date; taRenderSettings(); }
+      return r;
+    },
+    done: M => M.clear ? 'Date de mise en service retirée' : 'Date de mise en service enregistrée',
+  },
   lockMonth: {
     title: () => 'Verrouiller ' + taMonthLabel(TA.mo), sub: () => 'Dernier contrôle avant l’export paie.',
     fields: () => {
@@ -1025,6 +1085,7 @@ const TA_MODALS = {
       return taNote(`${rows.length} salariés · ${taFh1(t.h)} h travaillées · HS 25 % : ${taFh(t.hs25)} h · HS 50 % : ${taFh(t.hs50)} h`)
         + taNote(`Absences : ${taFh(t.CP)} j CP · ${taFh(t.MAL)} j maladie · ${taFh(t.EVT)} j év. familial · ${taFh(t.SS)} j sans solde · ${taFh(t.AUT)} j autre`)
         + (cross ? taNote('Semaines à cheval : ' + cross + '.') : '')
+        + (TA.cfg.debut_pointage && TA.cfg.debut_pointage > ds.first ? taNote(`Jours avant le ${taNice(TA.cfg.debut_pointage)} (mise en service) non comptés.`) : '')
         + taNote(`Après verrouillage, toute modification de ${TA_MOIS_L[TA.mo.m - 1]} demandera de déverrouiller avec un motif.`, 'warn');
     },
     info: () => { const ds = taDs(TA.mo); return { html: '', errs: taBlockers(ds).length ? ['Il reste des points à régler (étape 1).'] : [] }; },
@@ -1162,7 +1223,7 @@ function taPdfData(empId, mon) {
     if (dd.kind === 'future' || (i > 4 && dd.kind !== 'work')) continue;
     const day = taCap(taNice(d));
     if (dd.kind === 'abs') { rows.push({ day, abs: TA_ABS[dd.code] + (dd.code === 'F' ? ' — ' + dd.label : '') + (dd.half ? ' (' + TA_HALF[dd.half] + ')' : ''), tot: '—' }); continue; }
-    if (dd.kind === 'hors') { rows.push({ day, abs: 'Hors contrat', tot: '—' }); continue; }
+    if (dd.kind === 'hors') { rows.push({ day, abs: dd.avant ? 'Avant la mise en service' : 'Hors contrat', tot: '—' }); continue; }
     const t = (dd.punches || []).filter(p => p.valide && (p.type === 'ENTREE' || p.type === 'SORTIE')).map(p => taParisHM(p.horodatage));
     const cells = [0, 1, 2, 3].map(k => t[k] || '—');
     if (t.length > 4) notes.push(day + ' : autres pointages ' + t.slice(4).join(', '));
@@ -1234,8 +1295,17 @@ async function taRenderSettings() {
     .map(h => `<div class="ta-row ta-holrow"><span>${taCap(taNice(h[0]))} ${h[0].slice(0, 4)}</span><span>${taEsc(h[1])}</span>
       <button class="btn btn-ghost btn-xs" onclick="taDelHoliday('${h[0]}')" aria-label="Supprimer">✕</button></div>`).join('');
   const kiosk = location.origin + location.pathname + '?kiosk=1';
+  const deb = c.debut_pointage;
+  const debCard = `<div><div class="ta-label">Mise en service du pointage</div>
+      <div class="ta-small" style="margin-bottom:8px">Premier jour qui compte pour la paie, à fixer avec le prestataire. Les jours d’avant sont ignorés (pas d’heures, pas d’alerte, rien à clôturer).</div>
+      ${deb ? taNote(`🔒 Depuis le <b>${taEsc(taNice(deb))} ${deb.slice(0, 4)}</b>`, 'good')
+        : taNote('Non fixée — phase de test : les badgeages sont enregistrés mais aucun mois ne doit partir en paie.', 'warn')}
+      <div class="ta-row" style="gap:6px;margin-top:8px;justify-content:flex-start">
+        <button class="btn btn-${deb ? 'ghost' : 'primary'} btn-sm" onclick="taOpen('debut',{date:'${deb || ''}',ok:false})">${deb ? 'Changer…' : 'Fixer la date…'}</button>
+        ${deb ? `<button class="btn btn-ghost btn-sm" onclick="taOpen('debut',{clear:true,ok:false})">Retirer…</button>` : ''}</div></div>`;
   el.innerHTML = `<div class="settings-title">⏱ Temps de travail</div>
     <div class="ta-set-grid">
+      ${debCard}
       <div><div class="ta-label">Semaines à cheval sur deux mois</div><div class="ta-small" style="margin-bottom:8px">Le mois où sont payées les heures sup d’une semaine qui commence dans un mois et finit dans le suivant.</div>
         ${radio('fin', 'Mois de fin de semaine (par défaut)', 'ex. lundi 28 sept. → vendredi 2 oct. : heures sup payées en octobre')}
         ${radio('debut', 'Mois de début de semaine', 'ex. lundi 28 sept. → vendredi 2 oct. : heures sup payées en septembre')}</div>

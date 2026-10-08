@@ -164,3 +164,4 @@ table.ta-table{width:100%;min-width:0;border-collapse:collapse;font-size:13px}
   .ta-tiles{grid-template-columns:1fr}
   .ta-tab{padding:0 10px}
 }
+.ta-alert.info{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.35)}
