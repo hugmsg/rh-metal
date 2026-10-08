@@ -39,6 +39,7 @@ const TA = {
   mo: null,              // { y, m } affiché dans Mois et Clôture
   loaded: false, loading: null,
   holYears: new Set(),   // années dont les fériés ont été générés (jours_feries_annees)
+  admins: null,          // comptes liés (get_admins_rh), chargés par Paramètres
   data: {},              // 'YYYY-MM' → jeu de données du mois (pointages, corrections, verrous)
   cfg: { semaine_cheval: 'fin', heures_ref: 35, heures_25: 8, cp_annuels: 25, debut_pointage: null },
   hol: new Map(), clot: new Map(), cpAdj: [], journal: [], conges: [],
@@ -1103,6 +1104,41 @@ const TA_MODALS = {
     },
     done: M => M.clear ? 'Date de mise en service retirée' : 'Date de mise en service enregistrée',
   },
+  admin: {
+    title: M => M.add ? 'Ajouter un administrateur RH' : 'Retirer un administrateur RH',
+    sub: () => 'Inscrit au journal. Il reste toujours au moins un administrateur.',
+    fields: M => {
+      const A = Array.isArray(TA.admins) ? TA.admins : [], a = A.find(x => x.id === M.emp);
+      const chk = `<div class="fg full"><label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">
+        <input type="checkbox" ${M.ok ? 'checked' : ''} onchange="taMSet('ok',this.checked)" style="margin-top:2px">
+        <span>${M.add ? 'Je confirme donner à cette personne l’accès à toutes les données RH.' : (a && a.moi ? 'Je confirme retirer mon propre accès.' : 'Je confirme retirer cet accès.')}</span></label></div>`;
+      const motif = taFIn('Motif (obligatoire)', 'motif', 'text', { full: true, ph: M.add ? 'ex : suivi de la paie' : 'ex : départ, changement de poste' });
+      if (M.add) return taFSel('Salarié (compte de connexion lié)', 'emp', A.filter(x => !x.is_rh_admin && x.compte).map(x => [x.id, x.prenom + ' ' + x.nom]), true)
+        + taNote('Un administrateur RH voit et modifie tout : salaires, contrats, coordonnées, pointages, congés. Il peut verrouiller les mois, exporter la paie et gérer les autres administrateurs.', 'warn')
+        + chk + motif;
+      return taNote(`<b>${taEsc(a ? a.prenom + ' ' + a.nom : '?')}</b> n’aura plus que le portail salarié (ses heures et ses congés).`, '')
+        + (a && a.moi ? taNote('C’est ton propre accès : tu perdras l’application RH dès l’enregistrement et seul un autre administrateur pourra te le redonner.', 'bad') : '')
+        + chk + motif;
+    },
+    info: M => {
+      const errs = [], A = Array.isArray(TA.admins) ? TA.admins : [], a = A.find(x => x.id === M.emp);
+      if (!a) errs.push(M.add ? 'Choisis un salarié.' : 'Administrateur introuvable.');
+      else if (!M.add && a.compte && taAdminsOk().length <= 1) errs.push('C’est le dernier administrateur : nommes-en un autre d’abord.');
+      if (!M.ok) errs.push('Coche la confirmation.');
+      return { html: '', errs };
+    },
+    motif: true, save: M => M.add ? 'Nommer administrateur' : 'Retirer l’accès', cls: M => M.add ? 'btn-primary' : 'btn-danger',
+    run: async M => {
+      const r = await window.SupabaseDB.rpc('definir_admin_rh', { p_employe_id: M.emp, p_admin: !!M.add, p_motif: M.motif.trim() });
+      if (!r.error && r.data && r.data.ok) {
+        const a = (TA.admins || []).find(x => x.id === M.emp);
+        if (!M.add && a && a.moi) { setTimeout(() => location.reload(), 1200); return r; }
+        TA.admins = null; taRenderSettings();
+      }
+      return r;
+    },
+    done: M => M.add ? 'Administrateur ajouté' : 'Accès administrateur retiré',
+  },
   lockMonth: {
     title: () => 'Verrouiller ' + taMonthLabel(TA.mo), sub: () => 'Dernier contrôle avant l’export paie.',
     fields: () => {
@@ -1339,6 +1375,7 @@ async function taRenderSettings() {
   el.innerHTML = `<div class="settings-title">⏱ Temps de travail</div>
     <div class="ta-set-grid">
       ${debCard}
+      ${taAdminCard()}
       <div><div class="ta-label">Semaines à cheval sur deux mois</div><div class="ta-small" style="margin-bottom:8px">Le mois où sont payées les heures sup d’une semaine qui commence dans un mois et finit dans le suivant.</div>
         ${radio('fin', 'Mois de fin de semaine (par défaut)', 'ex. lundi 28 sept. → vendredi 2 oct. : heures sup payées en octobre')}
         ${radio('debut', 'Mois de début de semaine', 'ex. lundi 28 sept. → vendredi 2 oct. : heures sup payées en septembre')}</div>
@@ -1356,6 +1393,37 @@ async function taRenderSettings() {
       <div><div class="ta-label">Kiosque de pointage</div><div class="ta-small" style="margin-bottom:6px">Retiré du menu : il s’ouvre directement sur la tablette avec ce lien.</div>
         <div class="ta-row" style="gap:6px"><code class="ta-code">${taEsc(kiosk)}</code><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${taEsc(kiosk)}').then(()=>ptgToast('Lien copié'))">Copier</button></div></div>
     </div>`;
+}
+
+// Administrateurs RH : il en reste toujours au moins un (contrôlé aussi côté serveur).
+async function taLoadAdmins() {
+  if (TA._admLoading) return;
+  TA._admLoading = true;
+  const { data, error } = await window.SupabaseDB.rpc('get_admins_rh');
+  TA._admLoading = false;
+  TA.admins = error ? { err: error.message } : (data || []);
+  taRenderSettings();
+}
+function taAdminsOk() { return Array.isArray(TA.admins) ? TA.admins.filter(a => a.is_rh_admin && a.compte) : []; }
+function taAdminCard() {
+  const A = TA.admins;
+  const head = `<div class="ta-label">Administrateurs RH</div>
+    <div class="ta-small" style="margin-bottom:8px">Accès complet à l’application RH (salaires, contrats, pointages, export paie). Les autres comptes n’ont que le portail salarié.</div>`;
+  if (!A) { taLoadAdmins(); return `<div>${head}<div class="ta-small">Chargement…</div></div>`; }
+  if (A.err) return `<div>${head}${taNote('Chargement impossible : ' + taEsc(A.err), 'bad')}</div>`;
+  const ok = taAdminsOk(), last = ok.length <= 1, today = taToday();
+  const rows = A.filter(a => a.is_rh_admin).map(a => {
+    const tags = [a.moi ? 'toi' : '', !a.compte ? 'pas de compte lié' : '', a.date_sortie && a.date_sortie < today ? 'hors effectif' : ''].filter(Boolean).join(' · ');
+    const lock = last && a.compte;
+    return `<div class="ta-row ta-holrow"><span><b>${taEsc(a.prenom)} ${taEsc(a.nom)}</b>${tags ? ` <span class="ta-small">${taEsc(tags)}</span>` : ''}</span>
+      <button class="btn btn-ghost btn-xs" ${lock ? 'disabled title="Dernier administrateur : nommes-en un autre avant de le retirer"' : ''} onclick="taOpen('admin',{emp:'${a.id}',add:false,ok:false})">Retirer…</button></div>`;
+  }).join('');
+  const cands = A.filter(a => !a.is_rh_admin && a.compte).length;
+  return `<div>${head}<div class="ta-hols">${rows}</div>
+    ${last ? taNote('Un seul administrateur : il ne peut pas être retiré ni mis à la corbeille. Nommer un deuxième admin évite d’être bloqué.', 'warn') : ''}
+    <div class="ta-row" style="gap:6px;margin-top:8px;justify-content:flex-start">
+      <button class="btn btn-ghost btn-sm" ${cands ? '' : 'disabled'} onclick="taOpen('admin',{add:true,ok:false})">Ajouter un administrateur…</button></div>
+    ${cands ? '' : '<div class="ta-small" style="margin-top:6px">Pour ajouter quelqu’un, active d’abord son accès portail dans sa fiche salarié (compte de connexion).</div>'}</div>`;
 }
 
 async function taSaveCfg(patch) {

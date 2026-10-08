@@ -153,8 +153,20 @@ async function pushEmployeeToSupabase(emp) {
 async function deleteEmployeeFromSupabase(id) {
   const db = window.SupabaseDB;
   if (!db || !isUuid(id)) return;
-  const { error } = await db.rpc('supprimer_employe_rh', { p_id: id });
-  if (error) ptgToast('⚠ Suppression Supabase échouée : ' + error.message);
+  const { data, error } = await db.rpc('supprimer_employe_rh', { p_id: id });
+  if (error || data?.ok === false) {
+    ptgToast('⚠ Suppression refusée : ' + (error?.message || data?.message));
+    syncEmployeesFromSupabase({ silent: true });
+  }
+}
+
+// La fiche d'un administrateur RH ne part pas à la corbeille (règle aussi côté serveur).
+async function adminsParmi(ids) {
+  const db = window.SupabaseDB;
+  if (!db) return [];
+  const { data, error } = await db.rpc('get_admins_rh');
+  if (error || !Array.isArray(data)) return [];
+  return data.filter(a => a.is_rh_admin && ids.includes(a.id)).map(a => `${a.prenom} ${a.nom}`);
 }
 
 let unlinkedPtgAccounts = [];
@@ -826,8 +838,10 @@ function clearSelection() {
   updateBulkBar();
 }
 
-function bulkDelete() {
+async function bulkDelete() {
   if (!selectedIds.size) return;
+  const adm = await adminsParmi([...selectedIds]);
+  if (adm.length) { alert(`${adm.join(', ')} : administrateur RH.\nRetire d'abord ce droit dans Paramètres avant de supprimer la fiche.`); return; }
   const names = employees.filter(e=>selectedIds.has(e.id)).map(e=>`${e.prenom} ${e.nom}`).join(', ');
   if (!confirm(`Supprimer ${selectedIds.size} salarié(s) ?\n${names}`)) return;
   const idsToDelete = [...selectedIds];
@@ -1613,7 +1627,9 @@ async function dissocierBadge() {
   refresh();
 }
 
-function deleteEmp(id) {
+async function deleteEmp(id) {
+  const adm = await adminsParmi([id]);
+  if (adm.length) { alert(`${adm[0]} est administrateur RH.\nRetire d'abord ce droit dans Paramètres avant de supprimer la fiche.`); return; }
   if (!confirm('Supprimer ce salarié ?')) return;
   employees = employees.filter(e=>e.id!==id);
   saveData();

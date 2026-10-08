@@ -1,6 +1,6 @@
 // Service Worker — RH Métallurgie Dashboard
 // Version du cache : incrémenter à chaque mise à jour majeure
-const CACHE_NAME = 'rh-metal-v10';
+const CACHE_NAME = 'rh-metal-v11';
 
 // App shell (HTML/CSS/JS/manifest) : toujours vérifié en réseau d'abord pour
 // ne jamais rester bloqué sur une version périmée. Cache utilisé seulement

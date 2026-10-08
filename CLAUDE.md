@@ -248,7 +248,13 @@ tant que la session n'est pas résolue. Ce qui s'affiche ensuite dépend du
 **rôle résolu côté serveur** (`get_mon_role_rh()`, via `auth.uid()` →
 `employes.auth_user_id`/`is_rh_admin` — jamais un paramètre d'URL) :
 RH complet si `is_rh_admin`, sinon écran "accès non autorisé" en
-attendant que le portail lui-même soit construit. **Le mode kiosque
+attendant que le portail lui-même soit construit.
+**Gestion des admins (2026-10-08, `20261008110000_gestion_admins_rh.sql`)** : carte
+« Administrateurs RH » dans Paramètres (`get_admins_rh` / `definir_admin_rh`, motif + journal).
+Toujours ≥ 1 admin utilisable (non supprimé + compte lié) : refus côté RPC et trigger de
+statement `employes_garder_un_admin` (bloque aussi le SQL direct). La fiche d'un admin ne va pas à
+la corbeille (`supprimer_employe_rh` refuse). Le droit admin est indépendant des contrats : Hugo
+est sorti de l'effectif le 24/08/2026 (holding) et reste admin, hors exports. **Le mode kiosque
 (`?kiosk=1`) n'est pas concerné** : il contourne entièrement cet écran
 (`KIOSK_MODE` court-circuite `initAuthGate`). Depuis le 2026-10-06/07, il
 se connecte une fois avec le **compte dédié `kiosque@sonotrad.fr`**
