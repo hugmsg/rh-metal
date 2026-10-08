@@ -34,6 +34,7 @@ table.ta-table{width:100%;min-width:0;border-collapse:collapse;font-size:13px}
 .ta-bar{height:4px;background:var(--surface3);border-radius:2px;margin-top:4px;min-width:80px}
 .ta-bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
 .ta-acts{white-space:nowrap;display:flex;gap:4px;justify-content:flex-end}
+.ta-table td.ta-acts-td{text-align:right}
 
 /* Aujourd'hui */
 .ta-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}

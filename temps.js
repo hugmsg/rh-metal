@@ -398,7 +398,7 @@ function taRenderToday() {
       <td><div class="num">${taFh1(wk)} h / ${taFh(c)} h</div><div class="ta-bar"><i style="width:${Math.min(100, Math.round(wk / c * 100))}%"></i></div></td>
       <td class="num">${taFh1(mo)} h</td>
       <td class="num">${taFh(cp.solde)} j</td>
-      <td class="ta-acts">${acts}</td></tr>`);
+      <td class="ta-acts-td"><div class="ta-acts">${acts}</div></td></tr>`);
   });
   const chipDef = [['all', 'Tout le monde', emps.length], ['present', 'Présents en ce moment', counts.present], ['left', 'Partis', counts.left],
     ['absent', 'Absents prévus', counts.absent], ['missing', 'Pas encore pointé', counts.missing]];
