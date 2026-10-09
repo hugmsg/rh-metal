@@ -2337,7 +2337,9 @@ function _ptgNfcConnect() {
     db?.removeChannel(_ptg.nfcChannel);
     _ptg.nfcChannel = null;
   }
-  if (!settings.nfcEnabled || !db) {
+  // En mode kiosque le badge est toujours actif : la case de Paramètres est
+  // propre à chaque navigateur et l'onglet est masqué en ?kiosk=1.
+  if (!(settings.nfcEnabled || KIOSK_MODE) || !db) {
     _ptgNfcSetStatus('off');
     return;
   }

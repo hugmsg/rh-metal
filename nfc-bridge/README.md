@@ -91,9 +91,9 @@ Logs en direct : `journalctl -u nfc-bridge -f`
 
 ## 5. Activer le badge NFC dans RH-Metal
 
-Aucune adresse à renseigner. Dans RH-Metal → onglet **Réglages** → cocher
-"Activer le badge NFC sur le kiosque" (uniquement sur l'appareil qui sert de
-kiosque — ce réglage est local au navigateur, pas partagé entre postes).
+Rien à faire sur le kiosque : en `?kiosk=1`, le badge est toujours actif (depuis le
+2026-10-09). La case "Activer le badge NFC sur le kiosque" (Paramètres, locale au
+navigateur) ne concerne plus que l'écran Pointage ouvert sans `?kiosk=1`.
 
 Le kiosque lui-même tourne dans Chromium en mode kiosque sur le Pi, pointé
 sur `https://rh-metal.vercel.app/?kiosk=1` (voir CLAUDE.md, section Badge

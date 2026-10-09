@@ -430,7 +430,10 @@ vie (pastille "Lecteur connecté"/"Lecteur hors ligne", basée sur la
 fraîcheur du dernier heartbeat reçu — pas juste sur l'abonnement au canal,
 qui lui reste actif tant que Supabase répond, pont éteint ou non). Réglages
 → case à cocher "Activer le badge NFC sur le kiosque" (`settings.nfcEnabled`,
-un simple booléen local au navigateur — plus d'adresse à saisir).
+un simple booléen local au navigateur — plus d'adresse à saisir). **Ignorée en
+`?kiosk=1` depuis le 2026-10-09** : le kiosque écoute toujours les badges (la case,
+locale au navigateur, était décochée dans une fenêtre privée ou un navigateur neuf, et
+l'onglet Paramètres est masqué en mode kiosque).
 Déploiement du pont 100% manuel (pas d'accès SSH automatisé depuis
 l'environnement de dev) — le dossier du repo est la copie source/traçabilité,
 pas un mécanisme de déploiement.
