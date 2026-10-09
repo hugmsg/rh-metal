@@ -314,9 +314,9 @@ séparé (`#portal-view`, `index.html`), jamais l'app RH complète ni son
   demandes.
 
 **Sécurité — pourquoi des RPC dédiées plutôt qu'un accès direct aux
-tables.** `pointages`/`heures_journalieres`/`heures_corrections` ont une
-policy `anon SELECT true` (voulue pour le kiosque, sans login, voir
-section Pointage plus bas) — un accès direct depuis le portail aurait
+tables.** `pointages`/`heures_journalieres`/`heures_corrections` avaient
+une policy `anon SELECT true` (pour l'ancien kiosque sans login ; réservées
+aux admins RH depuis le 2026-10-09, voir « Points d'attention ») — un accès direct depuis le portail aurait
 exposé les heures de **tous** les salariés à n'importe quel compte
 portail connecté (un filtrage uniquement côté client se contourne
 trivialement depuis les devtools). D'où `get_mes_heures_rh`/
@@ -755,8 +755,14 @@ section directement dans le fichier concerné.
   `_exiger_admin_rh()` en première ligne.** Kiosque (2026-10-07) : `pointer_par_pin` et
   `pointer_par_nfc` exigent `_exiger_kiosque_ou_admin_rh()` ; `authentifier_par_pin` et
   `verifier_pointage` ne sont plus exposées ; seul `emettre_signal_nfc` (pont NFC) reste
-  ouvert à anon. Reste à faire : restreindre la **lecture** des tables/vues pointage à
-  authenticated.
+  ouvert à anon. **Lecture restreinte le 2026-10-09** (`20261009090000_lecture_pointage_restreinte.sql`) :
+  `pointages`, `heures_corrections`, `jours_statut`, `semaines_validees` et les vues
+  `pointages_today_vue`/`pointages_rapport_vue`/`heures_rapport_vue`/`employes_actifs_vue` =
+  admin RH seulement (`_est_admin_rh()`) ; `heures_journalieres` et `en_service_vue` = admin RH
+  ou compte kiosque (`_est_kiosque()`) **pour le jour courant uniquement**. Plus aucun SELECT
+  pour anon sur ces tables/vues ni sur les tables RH. Les vues tournent avec les droits du
+  propriétaire : le filtre est donc écrit **dans** la vue (pas de security_invoker, sinon la
+  jointure sur `employes`, sans policy, renverrait 0 ligne). Toute nouvelle vue RH : même règle.
 - **`get_employes_rh` (fiche complète : coordonnées perso, taux horaire, notes) est réservée
   aux admins RH depuis le 2026-10-05.** Pour l'identité seule (id, nom, prénom, poste,
   `a_fiche_rh`), utiliser **`get_employes_annuaire()`** — c'est ce que lisent la PWA et Apps
