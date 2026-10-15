@@ -116,17 +116,15 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   traite en changeant juste `date_sortie` côté fiche RH, sans rien
   réactiver manuellement (PIN/badge/coordonnées jamais touchés). RPC
   partagées avec sonotrad-pwa — corrige le même trou côté leur kiosque.
-- **Distinct du compte "Sonotrad-Utilisateurs"** (connexion à l'appli
-  sonotrad-pwa elle-même — logistique/stock/BCB/LOXAM, onglet
-  Administration) : ce compte-là vit dans une feuille Google Sheets
-  séparée (`sonotrad-scripts/masterfile/pwa_master.js`), reliée à
-  `employes` seulement via `employeId` pour affichage, **sans aucune
-  synchro** avec `date_sortie`/`actif`. Vérifié le 2026-08-21 (cas Anaïs
-  Breteau : contrat terminé mais toujours "activé" côté Administration,
-  malgré le correctif ci-dessus qui ne concerne que le badge/PIN de
-  pointage). Désactiver ce compte-là reste manuel et non destructif
-  (`_toggleUser` ne touche jamais le PIN) — amélioration envisagée mais
-  pas commencée : documentée dans `sonotrad-scripts/CLAUDE.md`.
+- **Comptes de la PWA sonotrad (depuis le 2026-10-15)** : table `comptes_pwa`
+  (rôle, activités, actif) reliée à `employes` ; **le PIN PWA = le PIN kiosque**
+  (`employes.pin_hash`). Accès à la PWA = salarié présent (règle ci-dessus) **ou**
+  `employes.acces_externe = true` (fonction `_acces_applis`) : personne externe
+  (ex. Hugo, holding, qui gère la RH) qui garde ses accès sans contrat SONOTRAD
+  en cours — ne pointe pas (le kiosque garde la règle « présent »), n'est pas
+  salariée. Pas encore d'interface : le drapeau se pose en SQL. L'accès admin
+  rh-metal (`is_rh_admin`) ne dépend pas du contrat. L'ancienne feuille
+  « Sonotrad-Utilisateurs » ne sert plus (voir `sonotrad-scripts/CLAUDE.md`).
 - **Corbeille + purge définitive** (2026-08-21, migration
   `20260821160641`) : `supprimer_employe_rh` ne faisait qu'un soft-delete
   (`supprime=true`) — un salarié supprimé devenait invisible dans Équipe
