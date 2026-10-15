@@ -1411,7 +1411,7 @@ async function taLoadPinEtat() {
 function taPinCard() {
   const E = TA.pinEtat;
   const head = `<div class="ta-label" style="margin-top:14px">Code PIN au kiosque</div>
-    <div class="ta-small" style="margin-bottom:6px">3 erreurs en 10 min : PIN bloqué 10 min. 10 erreurs dans la journée : bloqué jusqu’au lendemain. Le badge marche toujours.</div>`;
+    <div class="ta-small" style="margin-bottom:6px">3 erreurs en 10 min : PIN bloqué 10 min. 10 erreurs dans la journée : bloqué jusqu’au lendemain. Le badge marche toujours. Compté par écran : un PIN faux ne dit pas qui l’a tapé.</div>`;
   if (!E) { taLoadPinEtat(); return head + '<div class="ta-small">Chargement…</div>'; }
   if (E.err) return head + taNote('Chargement impossible : ' + taEsc(E.err), 'bad');
   if (!E.length) return head + taNote('Aucune erreur de PIN aujourd’hui.', 'good');
@@ -1419,7 +1419,10 @@ function taPinCard() {
   const lignes = E.map(e => {
     const fin = e.bloque_jusqua ? (e.raison === 'jour' ? 'bloqué jusqu’à demain'
       : 'bloqué jusqu’à ' + new Date(e.bloque_jusqua).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })) : 'utilisable';
-    return `<b>${taEsc(e.compte)}</b> : ${e.echecs_jour} erreur${e.echecs_jour > 1 ? 's' : ''} aujourd’hui — ${fin}`;
+    // Compteur par écran connecté (compte kiosque ou session d'un admin), jamais par salarié :
+    // un PIN faux ne correspond à personne.
+    const ecran = e.compte === 'Kiosque' ? 'Kiosque' : 'Écran connecté au compte de ' + e.compte;
+    return `<b>${taEsc(ecran)}</b> : ${e.echecs_jour} erreur${e.echecs_jour > 1 ? 's' : ''} aujourd’hui — ${fin}`;
   }).join('<br>');
   return head + taNote(lignes, bloque ? 'bad' : 'warn')
     + `<div class="ta-row" style="gap:6px;margin-top:8px;justify-content:flex-start">
