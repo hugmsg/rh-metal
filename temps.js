@@ -120,7 +120,7 @@ async function taLoadGlobals() {
   TA.cpAdj = adj.data || [];
   TA.journal = jr.data || [];
   TA.conges = cg.data || [];
-  conges = TA.conges; // l'ancien onglet Congés et calcSoldeCP lisent cette variable
+  conges = TA.conges; // calcSoldeCP lit cette variable
 }
 
 async function taLoadMonth(mo, into) {
@@ -383,10 +383,7 @@ function taRender() {
       <div><h2 class="ta-title">Temps & absences</h2><div class="ta-sub">${taEsc(sub)}</div></div>
       <div class="ta-tabs">${tabs.map(t => `<button class="ta-tab${TA.tab === t[0] ? ' on' : ''}" onclick="taGo({tab:'${t[0]}',drawer:null})">${t[1]}</button>`).join('')}</div>
     </div>
-    ${body}
-    <div class="ta-legacy">Anciens écrans, gardés pendant la validation :
-      <a href="#" onclick="showTab('pointage');return false">Pointage</a> ·
-      <a href="#" onclick="showTab('conges');return false">Congés</a></div>`;
+    ${body}`;
   taRenderDrawer();
   taRenderModal();
 }

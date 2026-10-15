@@ -18,8 +18,6 @@
 .ta-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px}
 .ta-cardhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--border)}
 .ta-scroll{overflow-x:auto}
-.ta-legacy{margin-top:24px;font-size:12px;color:var(--muted);text-align:center}
-.ta-legacy a{color:var(--muted)}
 .ta-link{background:none;border:none;color:var(--text);font:inherit;font-weight:600;cursor:pointer;padding:0;text-align:left}
 .ta-link:hover{color:var(--accent);text-decoration:underline}
 /* Limité aux tableaux de l’onglet : .num sert aussi ailleurs (KPI du Dashboard). */

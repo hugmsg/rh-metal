@@ -402,37 +402,6 @@
     </div>
   </div>
 
-  <!-- ═══════════════ TAB: CONGÉS ═══════════════ -->
-  <div class="tab" id="tab-conges">
-    <div class="section-header">
-      <div class="section-title">🌴 Congés &amp; absences</div>
-      <div class="actions-row">
-        <button class="btn btn-primary btn-sm" onclick="openCongeModal()">+ Nouvelle absence</button>
-      </div>
-    </div>
-
-    <div class="tbl-wrap">
-      <table id="conges-table">
-        <thead>
-          <tr>
-            <th>Salarié</th>
-            <th data-tip="Acquis - pris sur la période en cours (1er juin → 31 mai), en jours ouvrés">Solde CP</th>
-            <th>CP pris (période)</th>
-            <th>Maladie (période)</th>
-            <th>Événements (période)</th>
-            <th>Sans solde (période)</th>
-          </tr>
-        </thead>
-        <tbody id="conges-table-body"></tbody>
-      </table>
-    </div>
-
-    <div class="section-header" style="margin-top:24px;">
-      <div class="section-title">Historique</div>
-    </div>
-    <div id="conges-history-list"></div>
-  </div>
-
   <!-- ═══════════════ TAB: PARAMÈTRES ═══════════════ -->
   <!-- TEMPS & ABSENCES (temps.js) — remplace Pointage + Congés côté admin -->
   <div class="tab" id="tab-temps"><div id="ta-root"></div></div>
@@ -518,38 +487,8 @@
   <!-- ═══════════════ TAB: POINTAGE ═══════════════ -->
   <div class="tab" id="tab-pointage">
 
-    <div class="ptg-subnav">
-      <button class="ptg-subnav-btn active" data-ptgview="kiosk"  onclick="ptgShowSubView('kiosk')">📟 Kiosque</button>
-      <button class="ptg-subnav-btn"        data-ptgview="admin"  onclick="ptgShowSubView('admin')">📋 Suivi du jour</button>
-      <button class="ptg-subnav-btn"        data-ptgview="rapport" onclick="ptgShowSubView('rapport')">📊 Rapports</button>
-      <button class="ptg-subnav-btn"        data-ptgview="controle" onclick="ptgShowSubView('controle')">✅ Contrôle</button>
-    </div>
-
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
     <div class="ptg-view active" id="view-pointage">
-
-      <!-- Aide-mémoire admin (URL kiosque strict + pont badge NFC) — jamais visible sur le
-           kiosque lui-même (?kiosk=1), voir règle CSS body.kiosk-mode plus haut -->
-      <details id="ptg-kiosk-admin-note" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--muted)">
-        <summary style="cursor:pointer;font-weight:600;color:var(--text)">ℹ️ Pense-bête kiosque / badge NFC (admin)</summary>
-        <div style="margin-top:10px;line-height:1.6">
-          <p style="margin:0 0 8px">
-            <strong style="color:var(--text)">Lien du kiosque strict</strong> (à mettre sur
-            l'appareil du Raspberry Pi, jamais l'URL normale) :<br>
-            <code style="user-select:all">https://rh-metal.vercel.app/?kiosk=1</code>
-          </p>
-          <p style="margin:0 0 8px">
-            <strong style="color:var(--text)">Lancer le pont du lecteur de badge</strong> (PC
-            de secours si le Pi est en panne) : dossier Google Drive
-            <code>Pro SONOTRAD/RH/RH-Metal/nfc-bridge/dist/</code>, double-clic sur
-            <code>nfc_bridge.exe</code>.
-          </p>
-          <p style="margin:0">
-            Procédure détaillée pas-à-pas pour un collègue non technique :
-            <code>nfc-bridge/PROCEDURE_URGENCE.md</code>.
-          </p>
-        </div>
-      </details>
 
       <!-- Statut lecteur NFC — invisible tant qu'aucun pont n'est configuré (Réglages) -->
       <div id="ptg-nfc-status" style="display:none;text-align:center;margin-bottom:14px">
@@ -603,72 +542,6 @@
         <div id="ptg-en-service-list">
           <div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">—</div>
         </div>
-      </div>
-    </div>
-
-    <!-- ── VUE : SUIVI DU JOUR (ADMIN) ─────────────────────────────────── -->
-    <div class="ptg-view" id="view-ptg-admin">
-
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div>
-          <h2 style="font-size:18px;font-weight:700;margin:0">Passages du jour</h2>
-          <p id="ptg-admin-date" style="font-size:12px;color:var(--muted);margin:2px 0 0"></p>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" onclick="ptgAddModalShow()">＋ Ajouter</button>
-          <button class="btn btn-ghost btn-sm" onclick="ptgAdminRefresh()">↻ Actualiser</button>
-        </div>
-      </div>
-
-      <div id="ptg-alertes" style="margin-bottom:14px"></div>
-
-      <div class="ptg-dash-kpi-grid" id="ptg-admin-kpis">
-        <div class="ptg-dash-kpi ok"  id="ptg-kpi-service"><div class="ptg-dash-kpi-val">—</div><div class="ptg-dash-kpi-lbl">En service</div></div>
-        <div class="ptg-dash-kpi"     id="ptg-kpi-sortis"> <div class="ptg-dash-kpi-val">—</div><div class="ptg-dash-kpi-lbl">Sortis</div></div>
-        <div class="ptg-dash-kpi"     id="ptg-kpi-total">  <div class="ptg-dash-kpi-val">—</div><div class="ptg-dash-kpi-lbl">Passages</div></div>
-      </div>
-
-      <div id="ptg-admin-list">
-        <div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Chargement…</div>
-      </div>
-    </div>
-
-    <!-- ── VUE : RAPPORTS ──────────────────────────────────────────────── -->
-    <div class="ptg-view" id="view-ptg-rapport">
-
-      <div style="margin-bottom:14px">
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-          <div style="display:flex;background:var(--surface2);border-radius:10px;padding:3px;gap:2px">
-            <button id="ptg-rpt-btn-week" onclick="ptgRapportSetPeriod('week')"
-              style="border:none;border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s">
-              Semaine
-            </button>
-            <button id="ptg-rpt-btn-month" onclick="ptgRapportSetPeriod('month')"
-              style="border:none;border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s">
-              Mois
-            </button>
-          </div>
-          <button onclick="ptgRapportNav(-1)" class="btn btn-ghost btn-sm">←</button>
-          <span id="ptg-rpt-label" style="font-size:13px;font-weight:700;flex:1;text-align:center;min-width:160px"></span>
-          <button onclick="ptgRapportNav(1)" class="btn btn-ghost btn-sm">→</button>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="ptg-rpt-employe" onchange="_ptgRapportLoad()" class="filter-sel" style="flex:1">
-            <option value="">Tous les employés</option>
-          </select>
-          <button onclick="ptgRapportExport()" class="btn btn-primary btn-sm">⬇ PDF</button>
-        </div>
-      </div>
-
-      <div id="ptg-rpt-content">
-        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
-      </div>
-    </div>
-
-    <!-- ── VUE : CONTRÔLE HEBDOMADAIRE (revue + verrouillage) ──────────── -->
-    <div class="ptg-view" id="view-ptg-controle">
-      <div id="ptg-controle-content">
-        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Chargement…</div>
       </div>
     </div>
 
@@ -819,41 +692,6 @@
 </div>
 </div>
 
-<!-- ═══════════════ MODAL CONGÉ ═══════════════ -->
-<div class="overlay" id="conge-modal-overlay">
-<div class="modal">
-  <div class="modal-title" id="conge-modal-title"><span>🌴</span> Nouvelle absence</div>
-  <input type="hidden" id="cg-edit-id">
-
-  <div class="form-grid">
-    <div class="fg full"><label>Salarié</label>
-      <select id="cg-employe"></select>
-    </div>
-    <div class="fg"><label>Type</label>
-      <select id="cg-type" onchange="updateCongeModal()">
-        <option value="cp">Congés payés</option>
-        <option value="maladie">Maladie</option>
-        <option value="evenement_familial">Événement familial</option>
-        <option value="sans_solde">Sans solde</option>
-      </select>
-    </div>
-    <div class="fg" id="cg-motif-wrap" style="display:none;"><label>Motif</label>
-      <input id="cg-motif" placeholder="Mariage, naissance, décès...">
-    </div>
-    <div class="fg"><label>Date de début</label><input id="cg-debut" type="date" onchange="updateCongeModal()"></div>
-    <div class="fg"><label>Date de fin</label><input id="cg-fin" type="date" onchange="updateCongeModal()"></div>
-    <div class="fg full"><label>Notes / Observations</label><input id="cg-notes" placeholder="Optionnel"></div>
-  </div>
-
-  <div class="modal-hint" id="conge-modal-hint"></div>
-
-  <div class="modal-actions">
-    <button class="btn btn-ghost" onclick="closeCongeModal()">Annuler</button>
-    <button class="btn btn-primary" onclick="saveConge()">💾 Enregistrer</button>
-  </div>
-</div>
-</div>
-
 <!-- ═══════════════ MODAL BADGE NFC ═══════════════ -->
 <div class="overlay" id="badge-modal-overlay">
 <div class="modal">
@@ -872,75 +710,6 @@
     <button class="btn btn-primary" id="badge-listen-btn" onclick="_badgeListen()">📡 Écouter le prochain scan</button>
   </div>
 </div>
-</div>
-
-<!-- Modal : ajouter un pointage de correction -->
-<div id="ptg-add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
-  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <h3 style="font-size:16px;font-weight:700;margin:0">Ajouter un pointage</h3>
-      <button class="btn btn-ghost btn-sm" onclick="ptgAddModalHide()">✕</button>
-    </div>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Employé</label>
-    <select id="ptg-add-emp" class="filter-sel" style="width:100%;margin-bottom:14px">
-      <option value="">Sélectionner…</option>
-    </select>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:6px">Type</label>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-      <button onclick="ptgAddTypeSelect('ENTREE')"      data-ptgtype="ENTREE"      class="btn btn-ghost btn-sm">▶ Entrée</button>
-      <button onclick="ptgAddTypeSelect('SORTIE')"      data-ptgtype="SORTIE"      class="btn btn-ghost btn-sm">■ Sortie</button>
-      <button onclick="ptgAddTypeSelect('PAUSE_DEBUT')" data-ptgtype="PAUSE_DEBUT" class="btn btn-ghost btn-sm">☕ Début pause</button>
-      <button onclick="ptgAddTypeSelect('PAUSE_FIN')"   data-ptgtype="PAUSE_FIN"   class="btn btn-ghost btn-sm">↩ Fin pause</button>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-      <div>
-        <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Date</label>
-        <input type="date" id="ptg-add-date" class="filter-sel" style="width:100%">
-      </div>
-      <div>
-        <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Heure</label>
-        <input type="time" id="ptg-add-time" class="filter-sel" style="width:100%">
-      </div>
-    </div>
-    <button onclick="ptgAddConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer le pointage</button>
-  </div>
-</div>
-
-<div id="ptg-correction-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
-  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <h3 style="font-size:16px;font-weight:700;margin:0">Correction d'heures</h3>
-      <button class="btn btn-ghost btn-sm" onclick="ptgCorrectionModalHide()">✕</button>
-    </div>
-    <div id="ptg-correction-label" style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:600"></div>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Heures (+ ajoute du temps, − en retire)</label>
-    <input type="number" id="ptg-correction-heures" step="0.25" placeholder="ex : 0.5 ou -1" class="filter-sel" style="width:100%;margin-bottom:14px">
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Commentaire (visible sur le relevé signé)</label>
-    <input type="text" id="ptg-correction-commentaire" placeholder="ex : oubli de badge le matin" class="filter-sel" style="width:100%;margin-bottom:18px">
-    <button onclick="ptgCorrectionConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
-  </div>
-</div>
-
-<div id="ptg-conge-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;justify-content:center">
-  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <h3 style="font-size:16px;font-weight:700;margin:0">Déclarer un congé</h3>
-      <button class="btn btn-ghost btn-sm" onclick="ptgCongeModalHide()">✕</button>
-    </div>
-    <div id="ptg-conge-label" style="font-size:13px;color:var(--muted);margin-bottom:14px;font-weight:600"></div>
-    <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Type</label>
-    <select id="ptg-conge-type" onchange="ptgCongeTypeChange()" class="filter-sel" style="width:100%;margin-bottom:14px">
-      <option value="cp">Congés payés</option>
-      <option value="maladie">Maladie</option>
-      <option value="evenement_familial">Événement familial</option>
-      <option value="sans_solde">Sans solde</option>
-    </select>
-    <div id="ptg-conge-motif-wrap" style="display:none">
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Motif</label>
-      <input type="text" id="ptg-conge-motif" placeholder="ex : mariage, décès…" class="filter-sel" style="width:100%;margin-bottom:14px">
-    </div>
-    <button onclick="ptgCongeConfirm()" class="btn btn-primary" style="width:100%;justify-content:center;padding:13px">Enregistrer</button>
-  </div>
 </div>
 
 <!-- Feedback visuel plein écran (3 s) -->

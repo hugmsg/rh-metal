@@ -354,13 +354,15 @@ cette règle globale avant de chercher ailleurs.
   sans fiche RH" pour les salariés créés côté kiosque Pointage sans données
   RH — bouton "Compléter la fiche" qui verrouille nom/prénom sur la valeur
   déjà en base), **Optimisation** (simulateurs : hausse SMIC, heures sup,
-  effectif/ETP, analyse conformité CCM, scénarios comparatifs), **Pointage**
-  (kiosque PIN — Entrée/Sortie uniquement, suivi du jour, rapports avec
-  corrections d'heures, contrôle hebdomadaire verrouillable — connecté aux
-  tables `pointages`/`heures_journalieres`/`heures_corrections`/
-  `jours_statut`/`semaines_validees`, détail plus bas), **Congés** (solde CP par salarié,
-  historique des absences — voir plus bas), **Paramètres** (taux/grille CCM,
-  sauvegarde JSON).
+  effectif/ETP, analyse conformité CCM, scénarios comparatifs), **Temps & absences**
+  (`temps.js`, voir plus bas), **Paramètres** (taux/grille CCM, sauvegarde JSON).
+  `#tab-pointage` ne contient plus que le **kiosque** (seul écran en `?kiosk=1`, absent
+  de la navigation admin).
+- **2026-10-15 : anciens onglets Pointage (Suivi du jour, Rapports, Contrôle) et Congés
+  supprimés** (remplacés par Temps & absences, validé par Hugo). Les sections « Module Congés » et
+  « Module Pointage — … Rapports, Contrôle » ci-dessous sont de l'historique ; restent
+  dans `app.js` : `calcSoldeCP`/`getCpPeriod`/`sommeConges` (portail salarié) et les
+  formats `_ptgIntervals`, `_ptgHM`, `_ptgLocalDateStr`… (portail + `temps.js`).
 - PWA : thème clair/sombre, cartes mobile pour l'équipe (vs table desktop),
   gestion de la safe-area iOS (encoche/barre de statut) en mode standalone.
 
@@ -700,8 +702,8 @@ et `#ta-settings` (Paramètres). Maquette validée par Hugo : artifact
   faites, donc un férié supprimé dans Paramètres ne revient pas. Lundi de Pentecôte = férié
   chômé chez Sonotrad (confirmé par Hugo). `cloturer_mois` refuse un mois pas terminé ; une
   semaine n'est verrouillable qu'à partir de son vendredi (contrôle côté client).
-- Les anciens onglets Pointage/Congés restent accessibles par un lien en bas de l'onglet
-  pendant la validation (le kiosque `?kiosk=1` utilise toujours `#tab-pointage`).
+- Les anciens onglets Pointage/Congés ont été supprimés le 2026-10-15 (le kiosque
+  `?kiosk=1` utilise toujours `#tab-pointage`, réduit au seul kiosque).
 
 ## Limitations connues
 
@@ -709,9 +711,6 @@ Comportements volontairement non gérés ou pas encore corrigés partout — pas
 des bugs, mais à garder en tête et à ajuster manuellement au cas par cas si
 besoin :
 
-- **`countJoursOuvres(debut, fin)`** (module Congés) ne déduit pas les jours
-  fériés (pas de calendrier géré) — si un congé chevauche un férié, ajuster
-  le nombre de jours manuellement.
 - **`calcSoldeCP(emp)`** (module Congés) n'exclut pas du calcul d'acquisition
   les longues absences maladie/sans solde — l'acquisition légale réelle peut
   différer au-delà d'un certain seuil, à ajuster manuellement si besoin.
