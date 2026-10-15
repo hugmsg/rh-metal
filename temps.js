@@ -1393,8 +1393,44 @@ async function taRenderSettings() {
           <input type="text" class="filter-sel" placeholder="Nom (ex : Pont de l’Ascension)" value="${taEsc(TA.holName)}" oninput="TA.holName=this.value" style="flex:1">
           <button class="btn btn-ghost btn-sm" onclick="taAddHoliday()">Ajouter</button></div></div>
       <div><div class="ta-label">Kiosque de pointage</div><div class="ta-small" style="margin-bottom:6px">Retiré du menu : il s’ouvre directement sur la tablette avec ce lien.</div>
-        <div class="ta-row" style="gap:6px"><code class="ta-code">${taEsc(kiosk)}</code><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${taEsc(kiosk)}').then(()=>ptgToast('Lien copié'))">Copier</button></div></div>
+        <div class="ta-row" style="gap:6px"><code class="ta-code">${taEsc(kiosk)}</code><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${taEsc(kiosk)}').then(()=>ptgToast('Lien copié'))">Copier</button></div>
+        ${taPinCard()}</div>
     </div>`;
+}
+
+// Code PIN du kiosque : 3 erreurs en 10 min → bloqué 10 min ; 10 dans la journée → jusqu'au
+// lendemain (contrôlé côté serveur dans pointer_par_pin). Le badge n'est pas concerné.
+async function taLoadPinEtat() {
+  if (TA._pinLoading) return;
+  TA._pinLoading = true;
+  const { data, error } = await window.SupabaseDB.rpc('etat_pin_kiosque');
+  TA._pinLoading = false;
+  TA.pinEtat = error ? { err: error.message } : (data || []);
+  taRenderSettings();
+}
+function taPinCard() {
+  const E = TA.pinEtat;
+  const head = `<div class="ta-label" style="margin-top:14px">Code PIN au kiosque</div>
+    <div class="ta-small" style="margin-bottom:6px">3 erreurs en 10 min : PIN bloqué 10 min. 10 erreurs dans la journée : bloqué jusqu’au lendemain. Le badge marche toujours.</div>`;
+  if (!E) { taLoadPinEtat(); return head + '<div class="ta-small">Chargement…</div>'; }
+  if (E.err) return head + taNote('Chargement impossible : ' + taEsc(E.err), 'bad');
+  if (!E.length) return head + taNote('Aucune erreur de PIN aujourd’hui.', 'good');
+  const bloque = E.some(e => e.bloque_jusqua);
+  const lignes = E.map(e => {
+    const fin = e.bloque_jusqua ? (e.raison === 'jour' ? 'bloqué jusqu’à demain'
+      : 'bloqué jusqu’à ' + new Date(e.bloque_jusqua).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })) : 'utilisable';
+    return `<b>${taEsc(e.compte)}</b> : ${e.echecs_jour} erreur${e.echecs_jour > 1 ? 's' : ''} aujourd’hui — ${fin}`;
+  }).join('<br>');
+  return head + taNote(lignes, bloque ? 'bad' : 'warn')
+    + `<div class="ta-row" style="gap:6px;margin-top:8px;justify-content:flex-start">
+      <button class="btn btn-${bloque ? 'primary' : 'ghost'} btn-sm" onclick="taDebloquerPin()">Remettre le compteur à zéro</button>
+      <button class="btn btn-ghost btn-sm" onclick="TA.pinEtat=null;taRenderSettings()">Actualiser</button></div>`;
+}
+async function taDebloquerPin() {
+  const { error } = await window.SupabaseDB.rpc('debloquer_pin_kiosque');
+  if (error) { ptgToast('⚠ ' + error.message); return; }
+  ptgToast('PIN du kiosque débloqué');
+  TA.pinEtat = null; taRenderSettings();
 }
 
 // Administrateurs RH : il en reste toujours au moins un (contrôlé aussi côté serveur).

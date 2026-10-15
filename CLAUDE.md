@@ -765,6 +765,14 @@ section directement dans le fichier concerné.
   pour anon sur ces tables/vues ni sur les tables RH. Les vues tournent avec les droits du
   propriétaire : le filtre est donc écrit **dans** la vue (pas de security_invoker, sinon la
   jointure sur `employes`, sans policy, renverrait 0 ligne). Toute nouvelle vue RH : même règle.
+- **Limite d'essais du PIN (2026-10-15, `20261015090000_limite_essais_pin.sql`)** : le kiosque
+  ne demande que le PIN, donc les erreurs sont comptées **par compte connecté** (table
+  `pin_essais`, illisible hors RPC). 3 erreurs depuis le dernier pointage réussi dans les 10 min
+  → PIN refusé 10 min après la dernière erreur ; 10 erreurs dans la journée → refusé jusqu'au
+  lendemain (règle choisie par Hugo). Contrôle **avant** la vérification du PIN (sinon on
+  pourrait continuer à deviner). Repères par `id` (ordre d'enregistrement), pas par heure.
+  Blocage écrit dans `rh_journal` ; Paramètres → Kiosque affiche l'état (`etat_pin_kiosque`) et
+  « Remettre le compteur à zéro » (`debloquer_pin_kiosque`, admin RH). Le badge n'est pas limité.
 - **`get_employes_rh` (fiche complète : coordonnées perso, taux horaire, notes) est réservée
   aux admins RH depuis le 2026-10-05.** Pour l'identité seule (id, nom, prénom, poste,
   `a_fiche_rh`), utiliser **`get_employes_annuaire()`** — c'est ce que lisent la PWA et Apps

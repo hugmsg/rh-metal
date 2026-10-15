@@ -1988,7 +1988,7 @@ async function _ptgSubmit() {
   if (!res?.ok) {
     _ptgShake();
     _ptgMsg(res?.message || 'Pointage non autorisé.', 'var(--danger)');
-    _ptgReset(2000);
+    _ptgReset(res?.bloque ? 6000 : 2000); // message de blocage : laisser le temps de le lire
     return;
   }
 
