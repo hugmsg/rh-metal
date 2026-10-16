@@ -490,53 +490,28 @@
     <!-- ── VUE : KIOSQUE PIN ─────────────────────────────────────────────── -->
     <div class="ptg-view active" id="view-pointage">
 
-      <!-- Sélecteur de type -->
-      <div style="margin-bottom:16px">
-        <p class="kpi-lbl" style="text-align:center;margin-bottom:10px">Type de pointage</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="ptg-type-btn active type-ENTREE" data-type="ENTREE"      onclick="ptgSelectType('ENTREE')">🟢 Entrée</button>
-          <button class="ptg-type-btn"                    data-type="SORTIE"      onclick="ptgSelectType('SORTIE')">🔴 Sortie</button>
-        </div>
+      <div class="kq-layout">
+      <!-- Accueil : le badge est le moyen principal ; Entrée/Sortie déduites côté serveur -->
+      <div class="kq-hero">
+        <div class="kq-clock" id="kq-clock">--:--</div>
+        <div class="kq-date" id="kq-date"></div>
+        <div class="kq-badge-icon" aria-hidden="true">📡</div>
+        <div class="kq-title">Passez votre badge</div>
+        <div class="kq-sub">L'entrée ou la sortie est enregistrée automatiquement</div>
+        <div id="ptg-msg" class="kq-msg"></div>
+        <button class="kq-manual-btn" onclick="kqManuelOuvrir()">⌨️ Badgeage manuel</button>
       </div>
 
-      <!-- Bloc PIN -->
-      <div style="background:var(--surface2);border-radius:16px;padding:20px 16px">
-        <p style="text-align:center;font-size:14px;color:var(--muted);margin:0 0 14px;font-weight:500">Saisissez votre PIN</p>
-
-        <div class="ptg-dots-row" id="ptg-dots-row" style="display:flex;gap:20px;justify-content:center;margin-bottom:14px">
-          <div class="ptg-dot" id="ptg-dot-0"></div>
-          <div class="ptg-dot" id="ptg-dot-1"></div>
-          <div class="ptg-dot" id="ptg-dot-2"></div>
-          <div class="ptg-dot" id="ptg-dot-3"></div>
-        </div>
-
-        <div id="ptg-msg" style="text-align:center;font-size:13px;min-height:20px;margin-bottom:14px;color:var(--muted);font-weight:500"></div>
-
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:280px;margin:0 auto">
-          <button class="ptg-key" onclick="ptgPress('1')">1</button>
-          <button class="ptg-key" onclick="ptgPress('2')">2</button>
-          <button class="ptg-key" onclick="ptgPress('3')">3</button>
-          <button class="ptg-key" onclick="ptgPress('4')">4</button>
-          <button class="ptg-key" onclick="ptgPress('5')">5</button>
-          <button class="ptg-key" onclick="ptgPress('6')">6</button>
-          <button class="ptg-key" onclick="ptgPress('7')">7</button>
-          <button class="ptg-key" onclick="ptgPress('8')">8</button>
-          <button class="ptg-key" onclick="ptgPress('9')">9</button>
-          <button class="ptg-key ptg-key-empty" disabled aria-hidden="true"></button>
-          <button class="ptg-key" onclick="ptgPress('0')">0</button>
-          <button class="ptg-key" onclick="ptgDel()" style="font-size:18px">⌫</button>
-        </div>
+      <!-- Liste du jour (présent / parti / pas encore badgé), en direct -->
+      <div>
+      <div class="kq-list-head">
+        <p class="kpi-lbl" style="margin:0">Aujourd'hui</p>
+        <span id="ptg-en-service-count" class="kq-count"></span>
       </div>
-
-      <!-- Liste en service -->
-      <div style="margin-top:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <p class="kpi-lbl" style="margin:0">En service actuellement</p>
-          <span id="ptg-en-service-count" style="font-size:11px;color:var(--muted)"></span>
-        </div>
-        <div id="ptg-en-service-list">
-          <div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">—</div>
-        </div>
+      <div id="ptg-en-service-list" class="kq-list">
+        <div class="kq-empty">—</div>
+      </div>
+      </div>
       </div>
     </div>
 
@@ -705,6 +680,42 @@
     <button class="btn btn-primary" id="badge-listen-btn" onclick="_badgeListen()">📡 Écouter le prochain scan</button>
   </div>
 </div>
+</div>
+
+<!-- Kiosque : badgeage manuel (nom puis code PIN) -->
+<div id="kq-manuel" class="kq-manuel" onclick="if(event.target===this)kqManuelFermer()">
+  <div class="kq-manuel-box">
+    <div class="kq-manuel-head">
+      <button class="kq-head-btn" id="kq-back" onclick="kqManuelRetour()">← Retour</button>
+      <div class="kq-manuel-titre" id="kq-manuel-titre">Qui êtes-vous ?</div>
+      <button class="kq-head-btn" onclick="kqManuelFermer()" aria-label="Fermer">✕</button>
+    </div>
+    <div id="kq-step-nom" class="kq-noms"></div>
+    <div id="kq-step-pin" style="display:none">
+      <p class="kq-pin-hint">Tapez votre code PIN</p>
+      <div class="ptg-dots-row" id="ptg-dots-row" style="display:flex;gap:20px;justify-content:center;margin-bottom:14px">
+        <div class="ptg-dot" id="ptg-dot-0"></div>
+        <div class="ptg-dot" id="ptg-dot-1"></div>
+        <div class="ptg-dot" id="ptg-dot-2"></div>
+        <div class="ptg-dot" id="ptg-dot-3"></div>
+      </div>
+      <div id="kq-pin-msg" class="kq-pin-msg"></div>
+      <div class="kq-keypad">
+        <button class="ptg-key" onclick="ptgPress('1')">1</button>
+        <button class="ptg-key" onclick="ptgPress('2')">2</button>
+        <button class="ptg-key" onclick="ptgPress('3')">3</button>
+        <button class="ptg-key" onclick="ptgPress('4')">4</button>
+        <button class="ptg-key" onclick="ptgPress('5')">5</button>
+        <button class="ptg-key" onclick="ptgPress('6')">6</button>
+        <button class="ptg-key" onclick="ptgPress('7')">7</button>
+        <button class="ptg-key" onclick="ptgPress('8')">8</button>
+        <button class="ptg-key" onclick="ptgPress('9')">9</button>
+        <button class="ptg-key ptg-key-empty" disabled aria-hidden="true"></button>
+        <button class="ptg-key" onclick="ptgPress('0')">0</button>
+        <button class="ptg-key" onclick="ptgDel()" style="font-size:18px">⌫</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Feedback visuel plein écran (3 s) -->

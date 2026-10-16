@@ -466,6 +466,16 @@ ou `associer_badge_nfc` (fenêtre « Associer un badge » en écoute).
 fonctionne plus. Tout ce qui suit sur le pont, l'exe Windows et le heartbeat est de
 l'historique.
 
+**Kiosque centré sur le badge (2026-10-16, migration `20261016120000_kiosque_badge_principal.sql`)** :
+plus de choix Entrée/Sortie. Écran = horloge + « Passez votre badge » à gauche, liste du jour à
+droite (`kiosque_liste_jour()` : salariés présents dans l'effectif avec état présent / parti /
+pas encore badgé, rafraîchie par Realtime sur `heures_journalieres`). « Badgeage manuel » ouvre
+un panneau nom → PIN (`pointer_par_pin_employe(p_employe_id, p_pin)`, fermeture auto 30 s).
+Le type est déduit par `_pointer_auto` (dernier pointage du jour, anti-doublon 5 s), commun au
+badge et au PIN. Limite d'essais du PIN inchangée (par écran connecté). Maquette :
+`https://claude.ai/artifact/Udex8uTWhHMLaR7v6sCEK8`. L'ancienne `pointer_par_pin(p_pin, p_type)`
+n'est plus appelée par le front (à retirer).
+
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
 serveur WebSocket sur le réseau local (`ws://<ip-du-pi>:8765`), auquel le

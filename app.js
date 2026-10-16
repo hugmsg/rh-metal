@@ -1883,36 +1883,104 @@ function ptgShowSubView() {
   ptgInit();
 }
 
-/* ─ Kiosque PIN ─ */
+/* ─ Kiosque ─ */
+// Depuis le 2026-10-16, le badge (lecteur USB) est le moyen principal : plus de choix
+// Entrée/Sortie, le serveur déduit le type du dernier pointage du jour. « Badgeage
+// manuel » = choisir son nom puis taper son PIN (pointer_par_pin_employe, même limite
+// d'essais par écran). La liste du jour (kiosque_liste_jour) montre qui est présent,
+// parti ou pas encore badgé.
+
+const KQ_INACTIVITE_MS = 30000; // le panneau manuel se ferme seul après 30 s sans action
 
 const _ptg = {
-  pin: '', type: 'ENTREE', submitting: false, feedbackTimer: null, realtimeSub: null,
+  pin: '', employe: null, liste: [], jour: '', submitting: false,
+  feedbackTimer: null, realtimeSub: null, idleTimer: null, clockTimer: null,
 };
 
 function ptgInit() {
-  _ptg.pin = '';
-  _ptg.submitting = false;
-  _ptgRenderDots();
+  kqManuelFermer();
   _ptgMsg('');
-  ptgSelectType('ENTREE');
+  _kqClock();
+  clearInterval(_ptg.clockTimer);
+  _ptg.clockTimer = setInterval(_kqClock, 10000);
   _ptgLoadEnService();
 }
 
-function ptgSelectType(type) {
-  _ptg.type = type;
+// Horloge ; au changement de jour, la liste repart de zéro.
+function _kqClock() {
+  const now = new Date();
+  const el = document.getElementById('kq-clock');
+  if (!el) return;
+  el.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('kq-date').textContent =
+    now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const jour = _ptgLocalDateStr(now);
+  if (_ptg.jour && _ptg.jour !== jour) _ptgLoadEnService();
+  _ptg.jour = jour;
+}
+
+/* Badgeage manuel : nom puis PIN */
+
+function kqManuelOuvrir() {
+  _ptg.employe = null;
+  _kqAfficherNoms();
+  document.getElementById('kq-manuel').classList.add('open');
+  _kqActivite();
+}
+
+function kqManuelFermer() {
+  clearTimeout(_ptg.idleTimer);
+  _ptg.employe = null;
   _ptg.pin = '';
   _ptg.submitting = false;
-  _ptgRenderDots();
-  _ptgMsg('');
-  document.querySelectorAll('.ptg-type-btn').forEach(btn => {
-    btn.classList.remove('active', 'type-ENTREE', 'type-SORTIE', 'type-PAUSE_DEBUT', 'type-PAUSE_FIN');
+  document.getElementById('kq-manuel')?.classList.remove('open');
+}
+
+function kqManuelRetour() {
+  if (_ptg.submitting) return;
+  if (_ptg.employe) { _ptg.employe = null; _kqAfficherNoms(); _kqActivite(); }
+  else kqManuelFermer();
+}
+
+function _kqActivite() {
+  clearTimeout(_ptg.idleTimer);
+  _ptg.idleTimer = setTimeout(kqManuelFermer, KQ_INACTIVITE_MS);
+}
+
+function _kqAfficherNoms() {
+  document.getElementById('kq-manuel-titre').textContent = 'Qui êtes-vous ?';
+  document.getElementById('kq-step-pin').style.display = 'none';
+  const box = document.getElementById('kq-step-nom');
+  box.style.display = '';
+  box.textContent = '';
+  if (!_ptg.liste.length) {
+    box.innerHTML = '<div class="kq-empty">Liste indisponible — utilisez votre badge.</div>';
+    return;
+  }
+  _ptg.liste.forEach(emp => {
+    const btn = document.createElement('button');
+    btn.className = 'kq-nom-btn';
+    btn.textContent = `${emp.prenom || ''} ${emp.nom || ''}`.trim();
+    btn.onclick = () => _kqChoisir(emp);
+    box.appendChild(btn);
   });
-  const btn = document.querySelector(`.ptg-type-btn[data-type="${type}"]`);
-  if (btn) btn.classList.add('active', `type-${type}`);
+}
+
+function _kqChoisir(emp) {
+  _ptg.employe = emp;
+  _ptg.pin = '';
+  _ptg.submitting = false;
+  document.getElementById('kq-manuel-titre').textContent = `${emp.prenom || ''} ${emp.nom || ''}`.trim();
+  document.getElementById('kq-step-nom').style.display = 'none';
+  document.getElementById('kq-step-pin').style.display = '';
+  _ptgRenderDots();
+  _kqPinMsg('');
+  _kqActivite();
 }
 
 function ptgPress(digit) {
-  if (_ptg.submitting || _ptg.pin.length >= 4) return;
+  if (!_ptg.employe || _ptg.submitting || _ptg.pin.length >= 4) return;
+  _kqActivite();
   _ptg.pin += digit;
   _ptgRenderDots();
   if (_ptg.pin.length === 4) {
@@ -1923,9 +1991,10 @@ function ptgPress(digit) {
 
 function ptgDel() {
   if (_ptg.submitting) return;
+  _kqActivite();
   _ptg.pin = _ptg.pin.slice(0, -1);
   _ptgRenderDots();
-  _ptgMsg('');
+  _kqPinMsg('');
 }
 
 function _ptgRenderDots() {
@@ -1935,38 +2004,45 @@ function _ptgRenderDots() {
   }
 }
 
+// Message de l'accueil (badge).
 function _ptgMsg(msg, color = 'var(--muted)') {
   const el = document.getElementById('ptg-msg');
+  if (el) { el.textContent = msg; el.style.color = color; }
+}
+
+// Message du pavé PIN.
+function _kqPinMsg(msg, color = 'var(--muted)') {
+  const el = document.getElementById('kq-pin-msg');
   if (el) { el.textContent = msg; el.style.color = color; }
 }
 
 async function _ptgSubmit() {
   const db = window.SupabaseDB;
   if (!db) {
-    _ptgMsg('⚠ Supabase non configuré', 'var(--danger)');
+    _kqPinMsg('⚠ Supabase non configuré', 'var(--danger)');
     _ptgReset(1800);
     return;
   }
 
-  _ptgMsg('Vérification…');
+  _kqPinMsg('Vérification…');
 
-  // PIN + contrôle d'enchaînement + enregistrement en un seul appel, réservé au compte kiosque
-  // ou à un admin RH (remplace authentifier_par_pin + verifier_pointage + insert direct).
-  const { data: res, error } = await db.rpc('pointer_par_pin', { p_pin: _ptg.pin, p_type: _ptg.type });
+  const { data: res, error } = await db.rpc('pointer_par_pin_employe',
+    { p_employe_id: _ptg.employe.id, p_pin: _ptg.pin });
   if (error) {
     _ptgShake();
-    _ptgMsg(error.code === '42501' ? 'Kiosque non connecté — reconnectez le compte kiosque.' : 'Erreur lors de l\'enregistrement.', 'var(--danger)');
+    _kqPinMsg(error.code === '42501' ? 'Kiosque non connecté — reconnectez le compte kiosque.' : 'Erreur lors de l\'enregistrement.', 'var(--danger)');
     _ptgReset(2500);
     return;
   }
   if (!res?.ok) {
     _ptgShake();
-    _ptgMsg(res?.message || 'Pointage non autorisé.', 'var(--danger)');
+    _kqPinMsg(res?.message || 'Pointage non autorisé.', 'var(--danger)');
     _ptgReset(res?.bloque ? 6000 : 2000); // message de blocage : laisser le temps de le lire
     return;
   }
 
-  _ptgShowFeedback(res.nom, res.prenom, _ptg.type);
+  kqManuelFermer();
+  _ptgShowFeedback(res.nom, res.prenom, res.type);
 }
 
 function _ptgReset(delayMs = 0) {
@@ -1974,7 +2050,7 @@ function _ptgReset(delayMs = 0) {
     _ptg.pin = '';
     _ptg.submitting = false;
     _ptgRenderDots();
-    _ptgMsg('');
+    _kqPinMsg('');
   }, delayMs);
 }
 
@@ -1989,10 +2065,6 @@ function _ptgShowFeedback(nom, prenom, type) {
   const el = document.getElementById('ptg-feedback');
   if (!el) return;
 
-  // ENTREE/SORTIE uniquement : le kiosque (PIN et badge) ne soumet plus que
-  // ces deux types depuis le 2026-08-19 — la pause reste possible mais
-  // seulement en correction manuelle admin (Suivi du jour > Ajouter), qui
-  // n'affiche jamais cet écran de feedback plein écran.
   const typeMeta = {
     ENTREE: { label: 'Entrée en service', icon: '✅' },
     SORTIE: { label: 'Sortie de service', icon: '👋' },
@@ -2006,18 +2078,16 @@ function _ptgShowFeedback(nom, prenom, type) {
     new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
   el.classList.add('visible');
+  _ptgLoadEnService();
 
   clearTimeout(_ptg.feedbackTimer);
   _ptg.feedbackTimer = setTimeout(() => {
     el.classList.remove('visible');
-    _ptg.pin = '';
-    _ptg.submitting = false;
-    _ptgRenderDots();
     _ptgMsg('');
-    _ptgLoadEnService();
   }, 3000);
 }
 
+// Liste du jour : présents d'abord (par heure d'arrivée), puis pas encore badgés, puis partis.
 async function _ptgLoadEnService() {
   const db = window.SupabaseDB;
   const list  = document.getElementById('ptg-en-service-list');
@@ -2025,41 +2095,43 @@ async function _ptgLoadEnService() {
   if (!list) return;
 
   if (!db) {
-    list.innerHTML = '<div style="text-align:center;padding:12px;color:var(--muted);font-size:12px">Supabase non configuré</div>';
+    list.innerHTML = '<div class="kq-empty">Supabase non configuré</div>';
     return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await db
-    .from('en_service_vue')
-    .select('employe_id, nom, prenom, statut, heure_entree')
-    .eq('date', today)
-    .eq('statut', 'EN_SERVICE')
-    .order('heure_entree');
-
-  if (error || !data?.length) {
-    list.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">Personne en service pour l\'instant</div>';
+  const { data, error } = await db.rpc('kiosque_liste_jour');
+  if (error) {
+    list.innerHTML = '<div class="kq-empty">Liste indisponible</div>';
+    if (count) count.textContent = '';
+    return;
+  }
+  _ptg.liste = data || [];
+  if (!_ptg.liste.length) {
+    list.innerHTML = '<div class="kq-empty">Aucun salarié</div>';
     if (count) count.textContent = '';
     return;
   }
 
-  if (count) count.textContent = `${data.length} personne${data.length > 1 ? 's' : ''}`;
-  list.innerHTML = data.map(row => {
-    const since = row.heure_entree
-      ? new Date(row.heure_entree).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-      : '';
-    const initiale = (row.prenom?.[0] || '?').toUpperCase();
-    return `<div class="ptg-service-row">
-      <div style="width:36px;height:36px;border-radius:50%;background:rgba(16,185,129,.18);
-        display:flex;align-items:center;justify-content:center;
-        font-size:14px;font-weight:700;color:#6ee7b7;flex-shrink:0">${initiale}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:600">${row.prenom || ''} ${row.nom || ''}</div>
-        ${since ? `<div style="font-size:11px;color:var(--muted)">Depuis ${since}</div>` : ''}
-      </div>
-      <div style="width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0"></div>
-    </div>`;
-  }).join('');
+  const ordre = { present: 0, absent: 1, parti: 2 };
+  const rows = [..._ptg.liste].sort((a, b) =>
+    (ordre[a.statut] - ordre[b.statut]) ||
+    (a.statut === 'present' ? String(a.arrivee).localeCompare(String(b.arrivee)) : 0));
+  const nbPresents = rows.filter(r => r.statut === 'present').length;
+  if (count) count.textContent = `${nbPresents} présent${nbPresents > 1 ? 's' : ''} sur ${rows.length}`;
+
+  list.textContent = '';
+  rows.forEach(r => {
+    const etat = r.statut === 'present' ? `Présent depuis ${_ptgFmtTime(r.arrivee)}`
+               : r.statut === 'parti'   ? `Parti à ${_ptgFmtTime(r.depart)}`
+               : 'Pas encore badgé';
+    const row = document.createElement('div');
+    row.className = `kq-row ${r.statut}`;
+    row.innerHTML = '<div class="kq-av"></div><div style="flex:1;min-width:0"><div class="kq-nom"></div><div class="kq-etat"></div></div>';
+    row.querySelector('.kq-av').textContent = (r.prenom?.[0] || '?').toUpperCase();
+    row.querySelector('.kq-nom').textContent = `${r.prenom || ''} ${r.nom || ''}`.trim();
+    row.querySelector('.kq-etat').textContent = etat;
+    list.appendChild(row);
+  });
 }
 
 // Un seul canal Supabase Realtime partagé entre les 4 sous-onglets Pointage
@@ -2096,6 +2168,7 @@ async function _ptgNfcOnScan(uid) {
     setTimeout(() => _ptgMsg(''), 2000);
     return;
   }
+  kqManuelFermer();
   _ptgShowFeedback(data.nom, data.prenom, data.type);
 }
 

@@ -364,15 +364,48 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
    ═══════════════════════════════════════════ */
 .ptg-view{display:none}
 .ptg-view.active{display:block}
-.ptg-type-btn{
-  padding:14px 8px;border-radius:12px;border:2px solid var(--border);background:var(--surface2);
-  font-size:14px;font-weight:700;cursor:pointer;color:var(--muted);transition:all .15s;text-align:center;line-height:1.3;
-}
-.ptg-type-btn:active{transform:scale(0.97)}
-.ptg-type-btn.active.type-ENTREE{background:rgba(16,185,129,.18);border-color:#10b981;color:#6ee7b7}
-.ptg-type-btn.active.type-SORTIE{background:rgba(239,68,68,.18);border-color:#ef4444;color:#fca5a5}
-.ptg-type-btn.active.type-PAUSE_DEBUT{background:rgba(245,158,11,.18);border-color:#f59e0b;color:#fbbf24}
-.ptg-type-btn.active.type-PAUSE_FIN{background:rgba(59,130,246,.18);border-color:#3b82f6;color:#60a5fa}
+/* Kiosque centré sur le badge (2026-10-16) */
+.kq-layout{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;align-items:start}
+@media (max-width:760px){.kq-layout{grid-template-columns:1fr}}
+.kq-hero{text-align:center;background:var(--surface2);border-radius:18px;padding:22px 16px 20px}
+.kq-sub{font-size:13px;color:var(--muted);margin-top:4px}
+.kq-clock{font-size:44px;font-weight:800;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+.kq-date{font-size:13px;color:var(--muted);margin-top:4px;text-transform:capitalize}
+.kq-badge-icon{font-size:52px;line-height:1;margin:18px 0 8px}
+.kq-title{font-size:22px;font-weight:700}
+.kq-msg{min-height:20px;margin:10px 0 14px;font-size:14px;font-weight:600;color:var(--muted)}
+.kq-manual-btn{padding:12px 22px;border-radius:12px;border:1px solid var(--border);background:var(--surface);
+  color:var(--text);font-size:15px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.kq-manual-btn:active{background:var(--surface3)}
+.kq-list-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.kq-count{font-size:12px;color:var(--muted)}
+.kq-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.kq-empty{text-align:center;padding:16px;color:var(--muted);font-size:13px;grid-column:1/-1}
+.kq-row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surface);border-radius:10px;
+  box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.kq-row .kq-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;flex-shrink:0;background:var(--surface3);color:var(--muted)}
+.kq-row .kq-nom{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kq-row .kq-etat{font-size:11px;color:var(--muted)}
+.kq-row.present .kq-av{background:rgba(16,185,129,.18);color:var(--success)}
+.kq-row.present .kq-etat{color:var(--success);font-weight:600}
+.kq-row.parti{opacity:.6}
+.kq-manuel{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:8000;
+  align-items:center;justify-content:center;padding:16px}
+.kq-manuel.open{display:flex}
+.kq-manuel-box{background:var(--surface2);border-radius:18px;width:100%;max-width:560px;max-height:100%;
+  overflow:auto;padding:14px 16px 20px;box-shadow:var(--shadow)}
+.kq-manuel-head{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.kq-manuel-titre{flex:1;text-align:center;font-size:17px;font-weight:700}
+.kq-head-btn{min-width:44px;height:40px;padding:0 12px;border-radius:10px;border:none;background:var(--surface);
+  color:var(--text);font-size:14px;font-weight:600;cursor:pointer}
+.kq-noms{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.kq-nom-btn{padding:16px 10px;border-radius:12px;border:none;background:var(--surface);color:var(--text);
+  font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.2);line-height:1.25}
+.kq-nom-btn:active{background:var(--surface3)}
+.kq-pin-hint{text-align:center;font-size:14px;color:var(--muted);margin:0 0 14px;font-weight:500}
+.kq-pin-msg{text-align:center;font-size:13px;min-height:20px;margin-bottom:14px;color:var(--muted);font-weight:500}
+.kq-keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:280px;margin:0 auto}
 .ptg-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);background:transparent;transition:background .12s,border-color .12s,transform .12s}
 .ptg-dot.filled{background:var(--accent);border-color:var(--accent);transform:scale(1.1)}
 @keyframes ptg-shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
@@ -390,10 +423,6 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
   flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;
 }
 .ptg-feedback-overlay.visible{display:flex}
-.ptg-service-row{
-  display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surface);
-  border-radius:10px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.15);
-}
 /* Mode kiosque (?kiosk=1, Raspberry Pi) : aucune donnée RH visible, écran
    verrouillé sur Pointage > Kiosque. Voir KIOSK_MODE / showTab() dans le
    script — le masquage CSS est une protection en plus du verrouillage JS,
