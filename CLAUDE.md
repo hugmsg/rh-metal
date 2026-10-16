@@ -468,8 +468,9 @@ l'historique.
 
 **Kiosque centré sur le badge (2026-10-16, migration `20261016120000_kiosque_badge_principal.sql`)** :
 plus de choix Entrée/Sortie. Écran = horloge + « Passez votre badge » à gauche, liste du jour à
-droite (`kiosque_liste_jour()` : salariés présents dans l'effectif avec état présent / parti /
-pas encore badgé, rafraîchie par Realtime sur `heures_journalieres`). « Badgeage manuel » ouvre
+droite : **seulement les présents** + « x présents sur N » (demande de Hugo : voir d'un coup d'œil
+qu'il n'y a plus personne). `kiosque_liste_jour()` renvoie tout l'effectif avec l'état (présent /
+parti / absent) — la liste complète sert au panneau manuel ; rafraîchie par Realtime sur `heures_journalieres`. « Badgeage manuel » ouvre
 un panneau nom → PIN (`pointer_par_pin_employe(p_employe_id, p_pin)`, fermeture auto 30 s).
 Le type est déduit par `_pointer_auto` (dernier pointage du jour, anti-doublon 5 s), commun au
 badge et au PIN. Limite d'essais du PIN inchangée (par écran connecté). Maquette :

@@ -2087,7 +2087,7 @@ function _ptgShowFeedback(nom, prenom, type) {
   }, 3000);
 }
 
-// Liste du jour : présents d'abord (par heure d'arrivée), puis pas encore badgés, puis partis.
+// Liste du jour : les présents, par heure d'arrivée.
 async function _ptgLoadEnService() {
   const db = window.SupabaseDB;
   const list  = document.getElementById('ptg-en-service-list');
@@ -2112,18 +2112,19 @@ async function _ptgLoadEnService() {
     return;
   }
 
-  const ordre = { present: 0, absent: 1, parti: 2 };
-  const rows = [..._ptg.liste].sort((a, b) =>
-    (ordre[a.statut] - ordre[b.statut]) ||
-    (a.statut === 'present' ? String(a.arrivee).localeCompare(String(b.arrivee)) : 0));
-  const nbPresents = rows.filter(r => r.statut === 'present').length;
-  if (count) count.textContent = `${nbPresents} présent${nbPresents > 1 ? 's' : ''} sur ${rows.length}`;
+  // Seuls les présents sont affichés (la liste complète ne sert qu'au badgeage manuel) :
+  // en fin de journée, on voit tout de suite qu'il n'y a plus personne.
+  const rows = _ptg.liste.filter(r => r.statut === 'present')
+    .sort((a, b) => String(a.arrivee).localeCompare(String(b.arrivee)));
+  if (count) count.textContent = `${rows.length} présent${rows.length > 1 ? 's' : ''} sur ${_ptg.liste.length}`;
 
   list.textContent = '';
+  if (!rows.length) {
+    list.innerHTML = '<div class="kq-empty">Personne sur place</div>';
+    return;
+  }
   rows.forEach(r => {
-    const etat = r.statut === 'present' ? `Présent depuis ${_ptgFmtTime(r.arrivee)}`
-               : r.statut === 'parti'   ? `Parti à ${_ptgFmtTime(r.depart)}`
-               : 'Pas encore badgé';
+    const etat = `Présent depuis ${_ptgFmtTime(r.arrivee)}`;
     const row = document.createElement('div');
     row.className = `kq-row ${r.statut}`;
     row.innerHTML = '<div class="kq-av"></div><div style="flex:1;min-width:0"><div class="kq-nom"></div><div class="kq-etat"></div></div>';
