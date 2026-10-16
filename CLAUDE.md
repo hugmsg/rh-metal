@@ -27,7 +27,6 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
 - `supabase/functions/` — Edge Functions (première depuis le 2026-08-24 : `activer-portail`, création de comptes Supabase Auth), même logique que les migrations : copie source/traçabilité, déployées directement via MCP Supabase (`deploy_edge_function`), ce dossier n'est pas rejoué automatiquement
-- `nfc-bridge/` — pont Python (lecteur PC/SC → Supabase Realtime Broadcast) à déployer manuellement sur le Raspberry Pi kiosque, voir son `README.md` et la section Module Pointage — Badge NFC plus bas
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
 
@@ -262,7 +261,7 @@ se connecte une fois avec le **compte dédié `kiosque@sonotrad.fr`**
 (`authentifier_par_pin`, `verifier_pointage`) ne sont plus exécutables
 par anon/authenticated, et plus aucune écriture directe dans `pointages`
 n'est permise (migration `20261006040000_kiosque_fermeture_anon.sql`).
-Seul `emettre_signal_nfc` (pont NFC du Pi) reste appelable par anon.
+`emettre_signal_nfc` n'est plus appelable par anon depuis le 2026-10-16 (pont retiré).
 
 Nouvelle brique technique : une **Edge Function** (`activer-portail`,
 `supabase/functions/activer-portail/`, déployée via MCP Supabase) crée le
@@ -459,9 +458,13 @@ QWERTY et **octets inversés** (badge `FDA92E5E` → tape `5E2EA9FD`, soit `(eé
 un poste AZERTY). `app.js` (keydown global, après `_ptgNfcOnScan`) lit `event.code`
 (touche physique), n'accepte qu'une rafale (< 80 ms entre touches) terminée par
 Entrée, remet les octets dans l'ordre et appelle `pointer_par_nfc` (kiosque affiché)
-ou `associer_badge_nfc` (fenêtre « Associer un badge » en écoute). La pastille
-« Lecteur connecté/hors ligne » ne s'affiche plus que si un pont émet des
-battements de cœur. Le pont reste fonctionnel en parallèle jusqu'à sa suppression.
+ou `associer_badge_nfc` (fenêtre « Associer un badge » en écoute).
+**Le même jour, pont + diffusion Supabase retirés** : plus d'abonnement au canal
+`nfc-badge-scans` (canal public — n'importe qui pouvait y diffuser), plus de pastille
+« Lecteur connecté », `emettre_signal_nfc` réservée à `service_role` (migration
+`20261016100000_badge_lecteur_usb.sql`), dossier `nfc-bridge/` supprimé. L'ACR122U ne
+fonctionne plus. Tout ce qui suit sur le pont, l'exe Windows et le heartbeat est de
+l'historique.
 
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
@@ -764,8 +767,8 @@ section directement dans le fichier concerné.
   suffisait pas : la clé anon est publique. **Toute nouvelle fonction d'admin doit appeler
   `_exiger_admin_rh()` en première ligne.** Kiosque (2026-10-07) : `pointer_par_pin` et
   `pointer_par_nfc` exigent `_exiger_kiosque_ou_admin_rh()` ; `authentifier_par_pin` et
-  `verifier_pointage` ne sont plus exposées ; seul `emettre_signal_nfc` (pont NFC) reste
-  ouvert à anon. **Lecture restreinte le 2026-10-09** (`20261009090000_lecture_pointage_restreinte.sql`) :
+  `verifier_pointage` ne sont plus exposées ; `emettre_signal_nfc` (ancien pont NFC) a été
+  fermée à anon le 2026-10-16. **Lecture restreinte le 2026-10-09** (`20261009090000_lecture_pointage_restreinte.sql`) :
   `pointages`, `heures_corrections`, `jours_statut`, `semaines_validees` et les vues
   `pointages_today_vue`/`pointages_rapport_vue`/`heures_rapport_vue`/`employes_actifs_vue` =
   admin RH seulement (`_est_admin_rh()`) ; `heures_journalieres` et `en_service_vue` = admin RH

@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   quotaHSup: 450, // Contingent annuel H.Sup — accord collectif d'entreprise (~8h+/sem)
   maj25: 25,
   maj50: 50,
-  nfcEnabled: false, // pas d'adresse à configurer (transport Supabase Realtime) — juste on/off
+  nfcEnabled: false, // badge accepté sur le kiosque de ce poste (toujours actif en ?kiosk=1)
 };
 
 // ── CCM Métallurgie IDCC 3248 — Grille SMH 2024 (toujours en vigueur en 2026) ──
@@ -385,7 +385,6 @@ function saveSettings() {
   settings.maj50 = parseFloat(document.getElementById('s-maj50').value) || DEFAULT_SETTINGS.maj50;
   settings.nfcEnabled = document.getElementById('s-nfc-enabled').checked;
   localStorage.setItem('rh_settings', JSON.stringify(settings));
-  _ptgNfcConnect(); // (re)applique immédiatement le nouvel état, kiosque déjà ouvert ou non
 }
 function saveCcm() {
   Object.keys(ccmClasses).forEach(c => {
@@ -1349,9 +1348,9 @@ function saveEmployee() {
 }
 
 // ═══════════════════════════════════════════
-// BADGE NFC — association salarié <-> UID (Supabase Realtime Broadcast)
+// BADGE NFC — association salarié <-> UID (lecteur USB clavier, voir _badgeKbd)
 // ═══════════════════════════════════════════
-const _badge = { channel: null, timer: null };
+const _badge = { timer: null };
 
 function openBadgeModal(id) {
   const emp = employees.find(e => e.id === id);
@@ -1389,28 +1388,9 @@ function _badgeRefreshStatus(emp) {
 }
 
 function _badgeListen() {
-  const db = window.SupabaseDB;
-  const btn = document.getElementById('badge-listen-btn');
-  if (!db) {
-    _badgeZoneMsg('⚠ Supabase non configuré.');
-    return;
-  }
   _badgeStopListening();
-  btn.disabled = true;
-  _badgeZoneMsg('📡 En écoute… scannez le badge sur le lecteur.');
-  // Même canal que le kiosque (nfc-badge-scans) — un scan pendant une écoute
-  // "Associer un badge" est aussi reçu par le kiosque s'il est ouvert
-  // ailleurs (tentera pointer_par_nfc, échouera silencieusement si le badge
-  // n'est pas encore associé — sans conséquence, comportement déjà accepté
-  // avec l'ancien transport WebSocket qui diffusait à tous les clients).
-  _badge.channel = db
-    .channel('nfc-badge-scans')
-    .on('broadcast', { event: 'nfc_scan' }, ({ payload }) => {
-      if (!payload?.uid) return;
-      _badgeStopListening();
-      associerBadgeConfirm(payload.uid);
-    })
-    .subscribe();
+  document.getElementById('badge-listen-btn').disabled = true;
+  _badgeZoneMsg('📡 En écoute… passez le badge sur le lecteur.');
   _badge.timer = setTimeout(() => {
     _badgeZoneMsg('⏱ Aucun scan détecté après 30s — réessaie.');
     _badgeStopListening();
@@ -1419,10 +1399,6 @@ function _badgeListen() {
 
 function _badgeStopListening() {
   if (_badge.timer) { clearTimeout(_badge.timer); _badge.timer = null; }
-  if (_badge.channel) {
-    window.SupabaseDB?.removeChannel(_badge.channel);
-    _badge.channel = null;
-  }
   const btn = document.getElementById('badge-listen-btn');
   if (btn) btn.disabled = false;
 }
@@ -1911,7 +1887,6 @@ function ptgShowSubView() {
 
 const _ptg = {
   pin: '', type: 'ENTREE', submitting: false, feedbackTimer: null, realtimeSub: null,
-  nfcChannel: null, nfcLastHeartbeat: 0, nfcHeartbeatCheck: null,
 };
 
 function ptgInit() {
@@ -1921,7 +1896,6 @@ function ptgInit() {
   _ptgMsg('');
   ptgSelectType('ENTREE');
   _ptgLoadEnService();
-  _ptgNfcConnect();
 }
 
 function ptgSelectType(type) {
@@ -2111,69 +2085,8 @@ function _ptgSubscribeRealtime() {
     .subscribe();
 }
 
-/* ─ Badge NFC (Supabase Realtime Broadcast, canal nfc-badge-scans) ─ */
-// Transport : le pont Raspberry Pi pousse chaque scan vers Supabase (RPC
-// emettre_signal_nfc) au lieu d'exposer son propre serveur WebSocket — la
-// première version ouvrait une WebSocket ws:// directe, bloquée en prod par
-// le contenu mixte HTTPS (voir CLAUDE.md, "BUG CONNU 2026-07-31", corrigé le
-// 2026-08-18). Le navigateur ne parle qu'à Supabase, déjà en WSS.
-// Connexion persistante, indépendante du pavé PIN (coexistence) : un scan de
-// badge n'utilise jamais _ptg.type (le type Entrée/Sortie est auto-détecté
-// côté serveur par pointer_par_nfc). "Lecteur connecté" ne veut pas juste
-// dire "abonné au canal Supabase" (toujours vrai dès que Supabase répond) —
-// ça veut dire "le pont a émis un battement de cœur (heartbeat) il y a moins
-// de 30s", seul signal fiable que le pont/lecteur physique est bien en vie.
-function _ptgNfcSetStatus(status) {
-  const wrap = document.getElementById('ptg-nfc-status');
-  const pill = document.getElementById('ptg-nfc-status-pill');
-  if (!wrap || !pill) return;
-  if (status === 'off') { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  if (status === 'connected') {
-    pill.textContent = '📡 Lecteur connecté';
-    pill.className = 'badge-ok';
-  } else {
-    pill.textContent = '📡 Lecteur hors ligne';
-    pill.className = 'badge-alert';
-  }
-}
-
-const NFC_HEARTBEAT_TIMEOUT_MS = 30000;
-
-function _ptgNfcConnect() {
-  clearInterval(_ptg.nfcHeartbeatCheck);
-  const db = window.SupabaseDB;
-  if (_ptg.nfcChannel) {
-    db?.removeChannel(_ptg.nfcChannel);
-    _ptg.nfcChannel = null;
-  }
-  // En mode kiosque le badge est toujours actif : la case de Paramètres est
-  // propre à chaque navigateur et l'onglet est masqué en ?kiosk=1.
-  if (!(settings.nfcEnabled || KIOSK_MODE) || !db) {
-    _ptgNfcSetStatus('off');
-    return;
-  }
-  _ptg.nfcLastHeartbeat = 0;
-  // Pastille masquée tant qu'aucun pont ne s'est signalé : le lecteur USB
-  // « clavier » n'émet pas de battement de cœur.
-  _ptgNfcSetStatus('off');
-  _ptg.nfcChannel = db
-    .channel('nfc-badge-scans')
-    .on('broadcast', { event: 'nfc_scan' }, ({ payload }) => {
-      if (payload?.uid) _ptgNfcOnScan(payload.uid);
-    })
-    .on('broadcast', { event: 'heartbeat' }, () => {
-      _ptg.nfcLastHeartbeat = Date.now();
-      _ptgNfcSetStatus('connected');
-    })
-    .subscribe();
-  _ptg.nfcHeartbeatCheck = setInterval(() => {
-    if (_ptg.nfcLastHeartbeat && Date.now() - _ptg.nfcLastHeartbeat > NFC_HEARTBEAT_TIMEOUT_MS) {
-      _ptgNfcSetStatus('disconnected');
-    }
-  }, 5000);
-}
-
+/* ─ Badge NFC ─ */
+// Le type Entrée/Sortie est déterminé côté serveur par pointer_par_nfc.
 async function _ptgNfcOnScan(uid) {
   const db = window.SupabaseDB;
   if (!db) return;
@@ -2191,7 +2104,8 @@ async function _ptgNfcOnScan(uid) {
 // (touche physique) et non event.key : le lecteur tape en QWERTY, sur un
 // poste AZERTY "5E2EA9FD" s'affiche "(eéeqçfd". Il envoie les octets dans
 // l'ordre inverse de celui enregistré (nfc_uid = "FDA92E5E") → on les
-// remet à l'endroit. Une frappe humaine est trop lente pour être prise
+// remet à l'endroit. Depuis le 2026-10-16 c'est le seul chemin du badge
+// (l'ancien pont ACR122U + diffusion Supabase est retiré). Une frappe humaine est trop lente pour être prise
 // pour un badge (> 80 ms entre deux touches).
 const BADGE_KEY_GAP_MS = 80;
 const _badgeKbd = { buf: '', last: 0 };
