@@ -16,6 +16,14 @@ desktop.ini
 # Backup files (ne pas versionner les backups JSON)
 rh-metal-backup-*.json
 
+.vercel/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Backup files (ne pas versionner les backups JSON)
+rh-metal-backup-*.json
+
 # Python (nfc-bridge)
 __pycache__/
 *.pyc
