@@ -371,7 +371,13 @@ tr.selected td{background:rgba(124,108,248,.08) !important}
 .kq-sub{font-size:13px;color:var(--muted);margin-top:4px}
 .kq-clock{font-size:44px;font-weight:800;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
 .kq-date{font-size:13px;color:var(--muted);margin-top:4px;text-transform:capitalize}
-.kq-badge-icon{font-size:52px;line-height:1;margin:18px 0 8px}
+.kq-badge-icon{width:84px;height:84px;margin:22px auto 10px;border-radius:50%;display:grid;place-items:center;
+  background:var(--surface);border:2px solid var(--border);position:relative}
+.kq-badge-icon svg{width:40px;height:40px;stroke:var(--accent)}
+.kq-badge-icon::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);
+  opacity:0;animation:kq-pulse 2.4s ease-out infinite}
+@keyframes kq-pulse{0%{transform:scale(.85);opacity:.6}100%{transform:scale(1.25);opacity:0}}
+@media (prefers-reduced-motion:reduce){.kq-badge-icon::after{animation:none}}
 .kq-title{font-size:22px;font-weight:700}
 .kq-msg{min-height:20px;margin:10px 0 14px;font-size:14px;font-weight:600;color:var(--muted)}
 .kq-manual-btn{padding:12px 22px;border-radius:12px;border:1px solid var(--border);background:var(--surface);
