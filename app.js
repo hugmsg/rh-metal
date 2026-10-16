@@ -2087,7 +2087,7 @@ function _ptgShowFeedback(nom, prenom, type) {
   }, 3000);
 }
 
-// Liste du jour : les présents, par heure d'arrivée.
+// Liste du jour : les présents (prénom, nom), sans heure.
 async function _ptgLoadEnService() {
   const db = window.SupabaseDB;
   const list  = document.getElementById('ptg-en-service-list');
@@ -2114,8 +2114,8 @@ async function _ptgLoadEnService() {
 
   // Seuls les présents sont affichés (la liste complète ne sert qu'au badgeage manuel) :
   // en fin de journée, on voit tout de suite qu'il n'y a plus personne.
-  const rows = _ptg.liste.filter(r => r.statut === 'present')
-    .sort((a, b) => String(a.arrivee).localeCompare(String(b.arrivee)));
+  // Ni heure ni ordre d'arrivée affichés (discrétion entre collègues) : ordre alphabétique.
+  const rows = _ptg.liste.filter(r => r.statut === 'present');
   if (count) count.textContent = `${rows.length} présent${rows.length > 1 ? 's' : ''} sur ${_ptg.liste.length}`;
 
   list.textContent = '';
@@ -2124,13 +2124,11 @@ async function _ptgLoadEnService() {
     return;
   }
   rows.forEach(r => {
-    const etat = `Présent depuis ${_ptgFmtTime(r.arrivee)}`;
     const row = document.createElement('div');
     row.className = `kq-row ${r.statut}`;
-    row.innerHTML = '<div class="kq-av"></div><div style="flex:1;min-width:0"><div class="kq-nom"></div><div class="kq-etat"></div></div>';
+    row.innerHTML = '<div class="kq-av"></div><div style="flex:1;min-width:0"><div class="kq-nom"></div></div>';
     row.querySelector('.kq-av').textContent = (r.prenom?.[0] || '?').toUpperCase();
     row.querySelector('.kq-nom').textContent = `${r.prenom || ''} ${r.nom || ''}`.trim();
-    row.querySelector('.kq-etat').textContent = etat;
     list.appendChild(row);
   });
 }
