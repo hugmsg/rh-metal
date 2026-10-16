@@ -1,0 +1,9 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS supabase_vault WITH SCHEMA vault;
+CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
+
+CREATE SEQUENCE public.connexion_pwa_essais_id_seq AS bigint START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE public.pin_essais_id_seq AS bigint START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE public.rh_journal_id_seq AS bigint START WITH 1 INCREMENT BY 1;

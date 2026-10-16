@@ -1,0 +1,17 @@
+ALTER TABLE public.comptes_kiosque ADD CONSTRAINT comptes_kiosque_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.comptes_pwa ADD CONSTRAINT comptes_pwa_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
+ALTER TABLE public.conges ADD CONSTRAINT conges_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
+ALTER TABLE public.connexion_pwa_essais ADD CONSTRAINT connexion_pwa_essais_compte_id_fkey FOREIGN KEY (compte_id) REFERENCES comptes_pwa(id) ON DELETE CASCADE;
+ALTER TABLE public.contrats ADD CONSTRAINT contrats_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.cp_ajustements ADD CONSTRAINT cp_ajustements_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.heures_corrections ADD CONSTRAINT heures_corrections_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.heures_journalieres ADD CONSTRAINT heures_journalieres_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
+ALTER TABLE public.jours_statut ADD CONSTRAINT jours_statut_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.pointages ADD CONSTRAINT pointages_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
+ALTER TABLE public.rh_journal ADD CONSTRAINT rh_journal_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE SET NULL;
+ALTER TABLE public.semaines_validees ADD CONSTRAINT semaines_validees_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.voyages_internes ADD CONSTRAINT voyages_internes_numero_lv_fkey FOREIGN KEY (numero_lv) REFERENCES voyages(numero_lv) ON DELETE CASCADE;
+
+ALTER SEQUENCE public.connexion_pwa_essais_id_seq OWNED BY public.connexion_pwa_essais.id;
+ALTER SEQUENCE public.pin_essais_id_seq OWNED BY public.pin_essais.id;
+ALTER SEQUENCE public.rh_journal_id_seq OWNED BY public.rh_journal.id;

@@ -36,3 +36,6 @@ nfc-bridge/build/
 nfc-bridge/dist/
 
 .vercel
+
+# Droits détaillés de la base : dépôt public, gardé hors Git (copie locale OneDrive)
+supabase/schema/05_droits.sql

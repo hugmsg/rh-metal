@@ -26,6 +26,7 @@ Titre affiché dans l'app : **RH Sonotrad** (logo bandeau). Titre HTML/PWA :
   `style.css` ou tout autre asset listé dans `SHELL`/`STATIC_ASSETS` change
 - `icon.svg` — icône de l'app
 - `supabase/migrations/` — migrations SQL appliquées au projet Supabase partagé (voir plus bas), historique/documentation — les migrations sont appliquées directement en base via MCP Supabase, ce dossier n'est pas rejoué automatiquement au déploiement
+- `supabase/schema/` — **photo de la structure réelle de la base** (tables, fonctions, vues, droits), lue en base le 2026-10-16 et vérifiée par md5 ; mode d'emploi de restauration dans son `README.md`. **À rafraîchir après chaque migration.** `05_droits.sql` est **gitignoré** (dépôt GitHub public) : il n'existe que dans le dossier OneDrive. Les fichiers de `migrations/` restent l'historique, mais c'est ce dossier qui fait foi pour reconstruire la base
 - `supabase/functions/` — Edge Functions (première depuis le 2026-08-24 : `activer-portail`, création de comptes Supabase Auth), même logique que les migrations : copie source/traçabilité, déployées directement via MCP Supabase (`deploy_edge_function`), ce dossier n'est pas rejoué automatiquement
 - `PROMPT_CLAUDE_CODE.md` — notes de setup initial (git/GitHub/Vercel), garder comme historique, ne pas dupliquer son contenu ici
 - `rh-metal-backup-*.json` — exports de sauvegarde manuels (gitignorés, ne pas committer)
