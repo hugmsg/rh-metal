@@ -2154,7 +2154,9 @@ function _ptgNfcConnect() {
     return;
   }
   _ptg.nfcLastHeartbeat = 0;
-  _ptgNfcSetStatus('disconnected'); // pas encore de heartbeat reçu à ce stade
+  // Pastille masquée tant qu'aucun pont ne s'est signalé : le lecteur USB
+  // « clavier » n'émet pas de battement de cœur.
+  _ptgNfcSetStatus('off');
   _ptg.nfcChannel = db
     .channel('nfc-badge-scans')
     .on('broadcast', { event: 'nfc_scan' }, ({ payload }) => {
@@ -2166,7 +2168,7 @@ function _ptgNfcConnect() {
     })
     .subscribe();
   _ptg.nfcHeartbeatCheck = setInterval(() => {
-    if (!_ptg.nfcLastHeartbeat || Date.now() - _ptg.nfcLastHeartbeat > NFC_HEARTBEAT_TIMEOUT_MS) {
+    if (_ptg.nfcLastHeartbeat && Date.now() - _ptg.nfcLastHeartbeat > NFC_HEARTBEAT_TIMEOUT_MS) {
       _ptgNfcSetStatus('disconnected');
     }
   }, 5000);
@@ -2183,6 +2185,43 @@ async function _ptgNfcOnScan(uid) {
   }
   _ptgShowFeedback(data.nom, data.prenom, data.type);
 }
+
+/* ─ Badge NFC — lecteur USB « clavier » (YARONGTECH 8H, 2026-10-16) ─ */
+// Le lecteur tape l'UID en hexa puis Entrée, très vite. On lit event.code
+// (touche physique) et non event.key : le lecteur tape en QWERTY, sur un
+// poste AZERTY "5E2EA9FD" s'affiche "(eéeqçfd". Il envoie les octets dans
+// l'ordre inverse de celui enregistré (nfc_uid = "FDA92E5E") → on les
+// remet à l'endroit. Une frappe humaine est trop lente pour être prise
+// pour un badge (> 80 ms entre deux touches).
+const BADGE_KEY_GAP_MS = 80;
+const _badgeKbd = { buf: '', last: 0 };
+
+function _badgeKbdChar(code) {
+  let m = /^(?:Digit|Numpad)([0-9])$/.exec(code);
+  if (m) return m[1];
+  m = /^Key([A-F])$/.exec(code);
+  return m ? m[1] : null;
+}
+
+document.addEventListener('keydown', e => {
+  const now = Date.now();
+  if (now - _badgeKbd.last > BADGE_KEY_GAP_MS) _badgeKbd.buf = '';
+  _badgeKbd.last = now;
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    const hex = _badgeKbd.buf;
+    _badgeKbd.buf = '';
+    if (hex.length < 8 || hex.length % 2) return;
+    e.preventDefault();
+    const uid = hex.match(/../g).reverse().join('');
+    if (_badge.timer) { _badgeStopListening(); associerBadgeConfirm(uid); }
+    else if (document.getElementById('view-pointage')?.offsetParent && (settings.nfcEnabled || KIOSK_MODE)) {
+      _ptgNfcOnScan(uid);
+    }
+    return;
+  }
+  const c = _badgeKbdChar(e.code);
+  _badgeKbd.buf = c ? _badgeKbd.buf + c : '';
+});
 
 /* ─ Formats partagés (portail salarié, temps.js) ─ */
 

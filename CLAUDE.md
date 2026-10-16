@@ -453,6 +453,16 @@ pyinstaller pyscard requests && python -m PyInstaller --onefile --console
 collègue non technique en cas de panne du Pi (Hugo absent) :
 `nfc-bridge/PROCEDURE_URGENCE.md`.
 
+**Lecteur USB « clavier » (2026-10-16)** : YARONGTECH 13,56 MHz, mode 8H, branché
+directement sur le poste du kiosque — aucun pont. Il tape l'UID en hexa + Entrée, en
+QWERTY et **octets inversés** (badge `FDA92E5E` → tape `5E2EA9FD`, soit `(eéeqçfd` sur
+un poste AZERTY). `app.js` (keydown global, après `_ptgNfcOnScan`) lit `event.code`
+(touche physique), n'accepte qu'une rafale (< 80 ms entre touches) terminée par
+Entrée, remet les octets dans l'ordre et appelle `pointer_par_nfc` (kiosque affiché)
+ou `associer_badge_nfc` (fenêtre « Associer un badge » en écoute). La pastille
+« Lecteur connecté/hors ligne » ne s'affiche plus que si un pont émet des
+battements de cœur. Le pont reste fonctionnel en parallèle jusqu'à sa suppression.
+
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
 serveur WebSocket sur le réseau local (`ws://<ip-du-pi>:8765`), auquel le
