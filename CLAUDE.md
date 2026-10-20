@@ -181,25 +181,64 @@ partagées avec sonotrad-pwa) — rien d'autre à modifier côté lecture.
 **MIN(date_debut)** sur tout l'historique (ancienneté réelle) — sinon un
 renouvellement casserait le prorata de `calcSoldeCP` (module Congés).
 
-**Deux façons de faire évoluer un contrat**, distinguées explicitement pour
-ne pas reproduire l'ambiguïté qui a causé le bug Breteau :
-- **✏️ Modifier** (fiche existante) → `upsert_employe_rh` met à jour le
-  contrat courant **en place** (classe, taux, heures, poste, type, et
-  `date_sortie` pour clôturer/corriger la fin — jamais `date_entree`, plus
-  pris en compte dès qu'un contrat existe). Pour une augmentation, un
-  changement de classe/poste : **pas** un nouvel événement contractuel,
-  aucune nouvelle ligne. `date_entree` devient en lecture seule dans la
-  modale dès qu'un salarié a un id réel (ancienneté gérée uniquement par le
-  trigger) — éditable seulement à la création (1er contrat).
-- **🔄 Nouveau contrat** (icône dédiée sur chaque ligne Équipe, bouton dans
-  la modale, et bouton "Traiter" du bandeau contrats expirés) →
-  `upsert_contrat_rh` **insère toujours une nouvelle ligne** ; l'ancien
-  contrat reste intact dans l'historique. C'est le seul chemin pour un
-  vrai renouvellement, un passage CDD→CDI, ou une reprise saisonnière.
+**Trois façons de faire évoluer un contrat** (depuis le 2026-10-19), distinguées
+explicitement pour ne pas reproduire l'ambiguïté qui a causé le bug Breteau :
+- **Corriger type / fin** (sur le contrat courant, dans l'historique de la
+  fiche — `eqSaveCorrection`) → `upsert_employe_rh` ne touche plus que le
+  type et `date_sortie` du contrat courant (clôturer/corriger la fin —
+  jamais `date_entree`, plus prise en compte dès qu'un contrat existe). Poste,
+  classe, heures et taux sont ignorés côté serveur pour un contrat existant ;
+  la fiche ne les propose plus en saisie. Éditables seulement à la création
+  (1er contrat, modale `#modal-overlay`).
+- **📈 Évolution de salaire** (2026-10-19, migration
+  `20261019100000_historique_remuneration.sql`) — une augmentation n'est
+  **pas** un nouveau contrat (remarque de Hugo). Table `remunerations` : une
+  ligne datée par changement (`date_effet`, classe, taux, heures, h sup,
+  poste, `motif` dans une liste fermée, `note`, `saisi_par`), rattachée au
+  contrat en cours à cette date, **jamais modifiée** ensuite — une erreur se
+  corrige par une nouvelle ligne `correction`. RPC `ajouter_remuneration_rh`
+  (journalisée dans `rh_journal`) et `get_remunerations_rh` (section
+  « 📄 Contrats et rémunération » de la fiche, groupée par contrat, badges
+  « en vigueur » / « à venir », % d'écart). Chaque contrat ouvre son
+  historique par une ligne `debut_contrat` (trigger
+  `contrats_remuneration_initiale` ; reprise de l'existant le 2026-10-19 avec
+  `saisi_par = 'reprise'` — ces lignes portent les valeurs **du jour de la
+  reprise**, pas forcément celles de l'embauche, l'ancien « Modifier »
+  écrasait le taux). Les colonnes taux/classe/heures/poste de `contrats` (et
+  donc `employes`) reflètent la ligne **en vigueur** (`_appliquer_remunerations`,
+  appelée par trigger et au début de `get_employes_rh`) : une évolution saisie
+  à l'avance bascule à la première ouverture de rh-metal à partir de sa date
+  d'effet (pas de pg_cron sur le projet). Saisie un salarié à la fois (choix
+  de Hugo — pas d'augmentation groupée pour l'instant). Limite : la paie et les
+  simulations utilisent toujours le taux **actuel**, pas le taux en vigueur à
+  la date des heures.
+- **🔄 Nouveau contrat** (bouton de l'historique dans la fiche, et bouton
+  "Traiter" du bandeau contrats expirés) → `upsert_contrat_rh` **insère
+  toujours une nouvelle ligne** ; l'ancien contrat reste dans l'historique.
+  C'est le seul chemin pour un vrai renouvellement, un passage CDD→CDI, ou
+  une reprise saisonnière. Depuis le 2026-10-20, `p_clore_precedent` (case
+  cochée par défaut dans la fenêtre) termine la veille le contrat précédent
+  encore ouvert — avant, on oubliait de le clore et il restait « en cours ».
 
-`get_contrats_rh(p_employe_id)` alimente la section "📄 Historique des
-contrats" de la modale (le plus récent en premier, "Actuel" sur la 1ère
-ligne). `purger_employe_rh` nettoie aussi `contrats` avant de supprimer
+**Fiche salarié (refonte du 2026-10-20).** L'onglet Équipe n'a plus que 8
+colonnes (« Détail paie » réaffiche entrée, sortie, SMIC, mini CCM, écart,
+h. sup, brut annuel — préférence `localStorage rh_eq_detail`) et une colonne
+**État** (`eqEtat` : contrat terminé, sous le minimum, contingent h. sup,
+hausse à venir via `hausse_date`/`hausse_taux` de `get_employes_rh`, fin de
+contrat, barème apprenti) — le filtre « À vérifier » garde les états
+orange/rouge. Sous 760 px, des cartes (`#eq-cards`) remplacent le tableau.
+Un clic sur une ligne ouvre la fiche dans un panneau latéral (`#eq-drawer`,
+état `EQ`, `eqRenderFiche`) à 3 onglets : **Salaire & contrat** (conditions
+en vigueur, historique `get_remunerations_rh` groupé par contrat),
+**Identité** (nom, notes, coordonnées → `upsert_employe_rh`), **Accès &
+badge** (badge → `openBadgeModal`, portail, corbeille avec confirmation dans
+la page). Les fenêtres Évolution / Nouveau contrat sont rendues dans
+`#eq-dlg` (z-index 320, au-dessus du panneau 260 ; les `.overlay` restent à
+300). La fiche se re-rend à chaque synchro (`eqRefreshFiche`) en gardant les
+saisies en cours (`_eqKeepInputs`). La modale `#modal-overlay` ne sert plus
+qu'à la création et à « Compléter la fiche » d'un compte sonotrad-pwa.
+
+`purger_employe_rh` nettoie aussi `contrats` avant de supprimer
 `employes` (en plus de la contrainte `ON DELETE CASCADE`, par choix
 explicite de tout nettoyer soi-même, comme les autres tables liées).
 

@@ -120,6 +120,8 @@ function mapSupabaseRowToEmployee(row) {
     email_perso: row.email_perso || '',
     alerteVue: !!row.alerte_vue,
     portail_actif: !!row.portail_actif,
+    hausse_date: row.hausse_date || null,   // prochaine évolution déjà saisie (table remunerations)
+    hausse_taux: row.hausse_taux ?? null,
   };
 }
 
@@ -624,6 +626,29 @@ function sortBy(field) {
   renderTable();
 }
 
+// ── État d'un salarié (colonne « État », filtre « À vérifier ») ─────────────
+function eqToday() { return _ptgLocalDateStr(new Date()); }
+function eqIsExited(e) { return !!e.date_sortie && e.date_sortie < eqToday(); }
+function eqFmtTaux(v) { return (parseFloat(v) || 0).toFixed(2).replace('.', ',') + ' €'; }
+function eqFmtDateLong(iso) { return new Date(iso + 'T12:00').toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'}); }
+function eqPct(avant, apres) { const p = (apres / avant - 1) * 100; return (p >= 0 ? '+' : '') + p.toFixed(1).replace('.', ',') + ' %'; }
+
+function eqEtat(e) {
+  const out = [];
+  const exited = eqIsExited(e);
+  const cn = resolveClasse(e), min = getEffectiveMin(cn), taux = parseFloat(e.taux_horaire) || 0;
+  if (exited) out.push({lvl:'danger', txt:'Contrat terminé', tip:`${e.type_contrat || 'Contrat'} terminé le ${fmtDate(e.date_sortie)}`});
+  else if (!isMinWageExempt(e) && taux < min - 0.001) out.push({lvl:'warn', txt:'Sous le minimum', tip:`Taux saisi ${eqFmtTaux(taux)}, minimum ${eqFmtTaux(min)}. La paie applique déjà le minimum ; mettez la fiche à jour avec « Évolution de salaire ».`});
+  if (!exited) getAlerts(e).forEach(a => out.push({lvl:'warn', txt:'Contingent h. sup', tip:a.msg}));
+  if (!exited && e.hausse_date) out.push({lvl:'accent', txt:`Hausse le ${fmtDate(e.hausse_date).slice(0,5)}`, tip:`${eqFmtTaux(e.taux_horaire)} → ${eqFmtTaux(e.hausse_taux)} le ${fmtDate(e.hausse_date)}`});
+  if (!exited && e.date_sortie) out.push({lvl:'mute', txt:`Fin ${fmtDate(e.date_sortie)}`, tip:'Date de fin du contrat en cours'});
+  if (isMinWageExempt(e)) out.push({lvl:'mute', txt: e.type_contrat === 'Stage' ? 'Barème stagiaire' : 'Barème apprenti', tip:'Barème légal spécifique : minimum SMIC/CCM non applicable'});
+  return out;
+}
+function eqChips(list) {
+  return list.map(c => `<span class="eq-pill eq-p-${c.lvl}" title="${taEsc(c.tip || '')}">${taEsc(c.txt)}</span>`).join('');
+}
+
 // ── Multi-select ─────────────────────────────
 let selectedIds = new Set();
 
@@ -677,7 +702,7 @@ async function bulkDelete() {
   const adm = await adminsParmi([...selectedIds]);
   if (adm.length) { alert(`${adm.join(', ')} : administrateur RH.\nRetire d'abord ce droit dans Paramètres avant de supprimer la fiche.`); return; }
   const names = employees.filter(e=>selectedIds.has(e.id)).map(e=>`${e.prenom} ${e.nom}`).join(', ');
-  if (!confirm(`Supprimer ${selectedIds.size} salarié(s) ?\n${names}`)) return;
+  if (!confirm(`Mettre ${selectedIds.size} salarié(s) à la corbeille ?\n${names}`)) return;
   const idsToDelete = [...selectedIds];
   employees = employees.filter(e=>!selectedIds.has(e.id));
   selectedIds.clear();
@@ -692,7 +717,7 @@ async function bulkDelete() {
 
 function bulkSetSortie() {
   if (!selectedIds.size) return;
-  const today = new Date().toISOString().slice(0,10);
+  const today = eqToday();
   if (!confirm(`Marquer ${selectedIds.size} salarié(s) comme sortis aujourd'hui (${fmtDate(today)}) ?`)) return;
   const changed = [];
   employees.forEach(e=>{ if (selectedIds.has(e.id)) { e.date_sortie = today; changed.push(e); } });
@@ -715,10 +740,28 @@ function bulkExportCSV() {
   const csv = [header,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download=`selection_rh_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  a.download=`selection_rh_${eqToday()}.csv`; a.click();
+}
+
+// « Détail paie » : réaffiche entrée, sortie, SMIC, mini CCM, écart, h. sup et brut
+// annuel. Préférence d'affichage propre à ce navigateur.
+function toggleDetailPaie(on) {
+  document.getElementById('eq-tbl')?.classList.toggle('show-det', on);
+  try { localStorage.setItem('rh_eq_detail', on ? '1' : ''); } catch (_) {}
+}
+let _eqDetailInit = false;
+function _eqInitDetail() {
+  if (_eqDetailInit) return;
+  _eqDetailInit = true;
+  let on = false;
+  try { on = localStorage.getItem('rh_eq_detail') === '1'; } catch (_) {}
+  const cb = document.getElementById('eq-detail');
+  if (cb) cb.checked = on;
+  document.getElementById('eq-tbl')?.classList.toggle('show-det', on);
 }
 
 function renderTable() {
+  _eqInitDetail();
   const search = document.getElementById('search-input').value.toLowerCase();
   const filterContract = document.getElementById('filter-contrat').value;
   const filterGroup = document.getElementById('filter-groupe').value;
@@ -730,115 +773,108 @@ function renderTable() {
   if (search) rows = rows.filter(e=>`${e.nom} ${e.prenom} ${e.poste}`.toLowerCase().includes(search));
   if (filterContract) rows = rows.filter(e=>e.type_contrat===filterContract);
   if (filterGroup) rows = rows.filter(e=>e.groupe===filterGroup);
-  if (filterStatus==='active') rows = rows.filter(e=>!e.date_sortie||new Date(e.date_sortie)>new Date());
-  else if (filterStatus==='exited') rows = rows.filter(e=>e.date_sortie&&new Date(e.date_sortie)<=new Date());
-  else if (filterStatus==='alerts') rows = rows.filter(e=>getAlerts(e).length>0);
+  if (filterStatus==='active') rows = rows.filter(e=>!eqIsExited(e));
+  else if (filterStatus==='exited') rows = rows.filter(e=>eqIsExited(e));
+  else if (filterStatus==='alerts') rows = rows.filter(e=>eqEtat(e).some(c=>c.lvl==='danger'||c.lvl==='warn'));
 
   // Sort
   const f = sortState.field;
   rows.sort((a,b)=>{
     let va = a[f]||'', vb = b[f]||'';
     if (f==='sal_mensuel') { va=calcSalary(a).monthly; vb=calcSalary(b).monthly; }
+    if (f==='taux_horaire' || f==='classe_num') { va=parseFloat(va)||0; vb=parseFloat(vb)||0; }
     if (typeof va==='string') return va.localeCompare(vb)*sortState.dir;
     return (va-vb)*sortState.dir;
   });
 
   const tbody = document.getElementById('table-body');
+  const cards = document.getElementById('eq-cards');
+  renderEquipeAlertesContrats();
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="19"><div class="empty"><div class="empty-ico">🔍</div>Aucun salarié trouvé</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16"><div class="empty"><div class="empty-ico">🔍</div>Aucun salarié trouvé</div></td></tr>`;
     document.getElementById('table-foot').innerHTML = '';
+    cards.innerHTML = `<div class="empty"><div class="empty-ico">🔍</div>Aucun salarié trouvé</div>`;
+    eqRefreshFiche();
     return;
   }
 
-  const isExited = e => e.date_sortie && new Date(e.date_sortie) <= new Date();
-
   tbody.innerHTML = rows.map(e => {
     const s = calcSalary(e);
-    const alerts = getAlerts(e);
     const classeNum = resolveClasse(e);
     const cl = getCcmClass(classeNum);
-    const groupe = cl.groupe;
     const ccmTaux = getCcmMinRate(classeNum);
     const effMin = getEffectiveMin(classeNum);
     const rate = parseFloat(e.taux_horaire)||0;
-    const delta = (rate - effMin);
-    const hSupWarnAnnual = s.hSupAnnual > settings.quotaHSup;
-    const alertIcon = alerts.length ? `<span style="color:var(--warn)">⚠️</span>` : '';
-    const exited = isExited(e);
-    const belowSmic = ccmTaux < settings.smic;
+    const delta = rate - effMin;
+    const exempt = isMinWageExempt(e);
+    const exited = eqIsExited(e);
     const isSelected = selectedIds.has(e.id);
-    return `<tr class="row-emp ${exited?'exited':''}${isSelected?' selected':''}">
-      <td data-label="Sélection"><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)"></div></td>
-      <td data-label="Salarié"><b>${e.nom}</b> ${e.prenom} ${alertIcon}</td>
-      <td data-label="Entrée">${fmtDate(e.date_entree)}</td>
-      <td data-label="Sortie">${e.date_sortie?(exited?`<span style="color:var(--danger);font-weight:600">⛔ ${fmtDate(e.date_sortie)}</span>${e.alerteVue?` <span onclick="marquerAlerteContratVue('${e.id}',false)" style="cursor:pointer;color:var(--muted)" title="Vu — cliquer pour refaire apparaître dans le bandeau d'alertes">👁</span>`:''}`:`<span style="color:var(--muted)">${fmtDate(e.date_sortie)}</span>`):'<span style="color:var(--muted)">—</span>'}</td>
-      <td data-label="Contrat"><span class="badge b-${e.type_contrat?.toLowerCase().replace(' ','')}">${e.type_contrat}</span></td>
-      <td data-label="Poste" style="color:var(--muted);font-size:11px">${e.poste||'—'}</td>
-      <td data-label="Groupe"><div class="grp-badge grp-${groupe}">${groupe}</div></td>
-      <td data-label="Classe" style="font-size:12px;font-weight:700;color:var(--muted)" title="${cl.label} — ${cl.desc}">Cl.${classeNum}</td>
-      <td data-label="H/sem" class="num">${e.heures_semaine||35}h</td>
-      <td data-label="H.Sup/sem" class="num" style="${hSupWarnAnnual?'color:var(--warn)':''}">${e.heures_sup_semaine||0}h${hSupWarnAnnual?' ⚠️':''}</td>
-      <td data-label="SMIC €/h" class="num">${settings.smic.toFixed(2)}€</td>
-      <td data-label="Mini CCM" class="num" style="${belowSmic?'color:var(--warn)':''}" title="${belowSmic?'Sous SMIC → SMIC s\'applique':''}">${ccmTaux.toFixed(2)}€${belowSmic?' ⚠️':''}</td>
-      <td data-label="Taux salarié" class="num" title="Taux d'embauche">${rate.toFixed(2)}€</td>
-      <td data-label="Δ vs CCM" class="num" style="color:var(--muted)" title="${isMinWageExempt(e)?'Apprenti/stagiaire — barème légal spécifique, mini SMIC/CCM non applicable':delta<0?`Taux d'embauche sous le mini effectif — le SMIC/CCM (${effMin.toFixed(2)}€) s'applique automatiquement à la paie`:'Taux d\'embauche déjà au-dessus du mini effectif'}">${delta>=0?'+':''}${delta.toFixed(2)}€</td>
-      <td data-label="Brut/mois" class="num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
-      <td data-label="H.Sup brut/mois" class="num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
-      <td data-label="Brut/an" class="num">${fmt(s.annual)}</td>
-      <td data-label="Coût total/an" class="num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
-      <td data-label="Actions"><div style="display:flex;gap:4px">
-        <button class="btn btn-ghost btn-xs" onclick="openModal('${e.id}')">✏️</button>
-        ${isUuid(e.id) ? `<button class="btn btn-ghost btn-xs" onclick="openContratModal('${e.id}')" title="Nouveau contrat (renouvellement, CDI, reprise)">🔄</button>` : ''}
-        ${isUuid(e.id) ? `<button class="btn btn-ghost btn-xs" onclick="openBadgeModal('${e.id}')" title="${e.hasBadge?'Badge NFC associé':'Associer un badge NFC'}">${e.hasBadge?'📶':'📡'}</button>` : ''}
-        <button class="btn btn-danger btn-xs" onclick="deleteEmp('${e.id}')">🗑️</button>
-      </div></td>
+    const hs = parseFloat(e.heures_sup_semaine)||0;
+    return `<tr class="row-emp ${exited?'exited':''}${isSelected?' selected':''}" onclick="eqOpenFiche('${e.id}')">
+      <td onclick="event.stopPropagation()"><div class="cb-wrap"><input type="checkbox" data-id="${e.id}" ${isSelected?'checked':''} onchange="toggleRow('${e.id}',this)" aria-label="Sélectionner ${taEsc(e.prenom)} ${taEsc(e.nom)}"></div></td>
+      <td class="eq-who"><b>${taEsc((e.nom||'').toUpperCase())} ${taEsc(e.prenom)}</b><span>${taEsc(e.poste||'—')}</span></td>
+      <td><span class="badge b-${(e.type_contrat||'').toLowerCase().replace(' ','').replace('é','e')}">${taEsc(e.type_contrat||'—')}</span></td>
+      <td class="eq-det num">${fmtDate(e.date_entree)}</td>
+      <td class="eq-det num">${e.date_sortie?fmtDate(e.date_sortie):'—'}</td>
+      <td><span class="grp-badge grp-${cl.groupe}" title="${taEsc(cl.label+' — '+cl.desc)}">${cl.groupe}</span> <span class="eq-small">Cl.${classeNum}</span></td>
+      <td class="r num">${parseFloat(e.heures_semaine)||35} h${hs?` <span class="eq-muted">+${hs}</span>`:''}</td>
+      <td class="r eq-det num">${settings.smic.toFixed(2)} €</td>
+      <td class="r eq-det num">${ccmTaux.toFixed(2)} €</td>
+      <td class="r num"><b>${rate.toFixed(2)} €</b></td>
+      <td class="r eq-det num" style="color:${exempt?'var(--muted)':delta<0?'var(--danger)':'var(--success)'}">${exempt?'—':(delta>=0?'+':'')+delta.toFixed(2)}</td>
+      <td class="r num"><span title="${salTooltip(s)}">${fmt(s.monthly)}</span></td>
+      <td class="r eq-det num" style="color:var(--warn)">${s.supPay>0?fmt(s.supPay):'—'}</td>
+      <td class="r eq-det num">${fmt(s.annual)}</td>
+      <td class="r num" style="color:var(--teal)">${fmt(s.costAnnual)}</td>
+      <td><div class="eq-chips">${eqChips(eqEtat(e))}</div></td>
     </tr>`;
   }).join('');
 
+  cards.innerHTML = rows.map(e => {
+    const s = calcSalary(e), cn = resolveClasse(e);
+    return `<button type="button" class="eq-card ${eqIsExited(e)?'exited':''}" onclick="eqOpenFiche('${e.id}')">
+      <span><b>${taEsc((e.nom||'').toUpperCase())} ${taEsc(e.prenom)}</b><span class="eq-small eq-muted">${taEsc(e.poste||'—')} · ${taEsc(e.type_contrat||'')} · Cl.${cn}</span></span>
+      <span class="r num"><b>${(parseFloat(e.taux_horaire)||0).toFixed(2)} €</b><span class="eq-small eq-muted">${fmt(s.monthly)} / mois</span></span>
+      <span class="eq-chips" style="grid-column:1/-1">${eqChips(eqEtat(e))}</span>
+    </button>`;
+  }).join('');
+
   // Footer totals
-  const activeRows = rows.filter(e=>!isExited(e));
+  const activeRows = rows.filter(e=>!eqIsExited(e));
   const totals = aggregatePayroll(activeRows);
   document.getElementById('table-foot').innerHTML = `
     <tr class="tbl-footer">
       <td></td>
-      <td colspan="7" data-label="Total"><b>TOTAL (${activeRows.length} actifs)</b></td>
-      <td></td><td></td><td></td><td></td><td></td><td></td>
-      <td class="num" data-label="Brut/mois"><b>${fmt(totals.monthly)}</b></td>
-      <td class="num" data-label="H.Sup brut/mois"><b>${fmt(activeRows.reduce((s,e)=>s+calcSalary(e).supPay,0))}</b></td>
-      <td class="num" data-label="Brut/an"><b>${fmt(totals.annual)}</b></td>
-      <td class="num" data-label="Coût total/an"><b>${fmt(totals.cost)}</b></td>
+      <td colspan="2"><b>${activeRows.length} en poste</b></td>
+      <td class="eq-det"></td><td class="eq-det"></td><td></td><td></td><td class="eq-det"></td><td class="eq-det"></td><td></td><td class="eq-det"></td>
+      <td class="r num"><b>${fmt(totals.monthly)}</b></td>
+      <td class="r eq-det num"><b>${fmt(activeRows.reduce((s,e)=>s+calcSalary(e).supPay,0))}</b></td>
+      <td class="r eq-det num"><b>${fmt(totals.annual)}</b></td>
+      <td class="r num"><b>${fmt(totals.cost)}</b></td>
       <td></td>
     </tr>`;
 
-  renderEquipeAlertesContrats();
+  eqRefreshFiche();
 }
 
-// Bandeau d'alerte : contrats déjà arrivés à échéance (date_sortie passée)
+// Bandeau d'alerte : contrats déjà arrivés à échéance (date de fin passée)
 // mais pas encore traités (ni renouvelés/prolongés, ni archivés via la
 // Corbeille) — l'éligibilité au badge/PIN est déjà bloquée côté Supabase
 // (voir migration 20260821152633), ce bandeau sert juste à ce que ça ne
-// reste pas invisible côté RH (cas réel : CDD Anaïs Breteau découvert par
-// hasard 3 semaines après sa fin). Purement local (employees déjà chargé),
-// pas d'appel Supabase supplémentaire.
+// reste pas invisible côté RH (cas réel : CDD découvert par hasard
+// 3 semaines après sa fin). Purement local (employees déjà chargé).
 function renderEquipeAlertesContrats() {
   const el = document.getElementById('equipe-alertes-contrats');
   if (!el) return;
-  const expires = employees.filter(e => e.date_sortie && new Date(e.date_sortie) <= new Date() && !e.alerteVue);
+  const expires = employees.filter(e => eqIsExited(e) && !e.alerteVue);
   if (!expires.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'block';
-  el.innerHTML = `<div style="border-radius:10px;overflow:hidden;border:1px solid rgba(239,68,68,.3)">
-    <div style="background:rgba(239,68,68,.1);padding:7px 12px;border-bottom:1px solid rgba(239,68,68,.3)">
-      <span style="font-size:12px;font-weight:700;color:var(--danger)">
-        ⛔ ${expires.length} contrat${expires.length>1?'s':''} arrivé${expires.length>1?'s':''} à échéance — accès pointage déjà bloqué, fiche à traiter (renouveler, passer en CDI, ou archiver)
-      </span>
-    </div>
-    ${expires.map(e => `<div style="background:rgba(239,68,68,.06);padding:7px 12px;
-      border-bottom:1px solid rgba(239,68,68,.15);display:flex;align-items:center;gap:10px">
-      <span style="flex:1;font-size:12px;color:var(--danger)">
-        <strong>${e.nom} ${e.prenom}</strong> · ${e.type_contrat||''} terminé le ${fmtDate(e.date_sortie)}
-      </span>
-      <button onclick="marquerAlerteContratVue('${e.id}')" class="btn btn-ghost btn-xs" title="Pas de renouvellement prévu pour l'instant, mais salarié conservé (pourrait revenir) — retire juste l'alerte">👁 Vu</button>
-      <button onclick="openContratModal('${e.id}')" class="btn btn-danger btn-xs">🔄 Traiter</button>
+  el.innerHTML = `<div class="eq-alert">
+    <div class="eq-alert-head">⛔ ${expires.length} contrat${expires.length>1?'s':''} arrivé${expires.length>1?'s':''} à échéance — pointage déjà bloqué, à traiter (renouveler, passer en CDI ou laisser partir)</div>
+    ${expires.map(e => `<div class="eq-alert-row">
+      <span><b>${taEsc(e.prenom)} ${taEsc(e.nom)}</b> · ${taEsc(e.type_contrat||'')} terminé le ${fmtDate(e.date_sortie)}</span>
+      <button onclick="marquerAlerteContratVue('${e.id}')" class="btn btn-ghost btn-xs" title="Pas de renouvellement prévu, mais salarié conservé (il pourrait revenir) : retire juste l'alerte">👁 Vu</button>
+      <button onclick="eqOpenFiche('${e.id}');eqOpenContrat()" class="btn btn-danger btn-xs">🔄 Traiter</button>
     </div>`).join('')}
   </div>`;
 }
@@ -1076,71 +1112,41 @@ function renderSettings() {
 // ═══════════════════════════════════════════
 // MODAL
 // ═══════════════════════════════════════════
+// Création d'une fiche (et complément d'un compte sonotrad-pwa sans fiche RH).
+// Une fiche existante s'ouvre dans le panneau latéral (eqOpenFiche).
 function openModal(id) {
-  const overlay = document.getElementById('modal-overlay');
-  overlay.classList.add('open');
+  if (id) { eqOpenFiche(id); return; }
+  document.getElementById('modal-overlay').classList.add('open');
   document.getElementById('f-nom').readOnly = false;
   document.getElementById('f-prenom').readOnly = false;
   document.getElementById('modal-linked-badge').style.display = 'none';
-  if (id) {
-    const e = employees.find(x=>x.id===id);
-    if (!e) return;
-    document.getElementById('modal-title').innerHTML = '<span>✏️</span> Modifier salarié';
-    document.getElementById('edit-id').value = id;
-    document.getElementById('f-nom').value = e.nom||'';
-    document.getElementById('f-prenom').value = e.prenom||'';
-    document.getElementById('f-entree').value = e.date_entree||'';
-    document.getElementById('f-sortie').value = e.date_sortie||'';
-    document.getElementById('f-contrat').value = e.type_contrat||'CDI';
-    document.getElementById('f-poste').value = e.poste||'';
-    document.getElementById('f-classe').value = resolveClasse(e).toString();
-    document.getElementById('f-heures').value = e.heures_semaine||35;
-    document.getElementById('f-hsup').value = e.heures_sup_semaine||0;
-    document.getElementById('f-taux').value = e.taux_horaire||'';
-    document.getElementById('f-notes').value = e.notes||'';
-    document.getElementById('f-adresse').value = e.adresse||'';
-    document.getElementById('f-tel-perso').value = e.telephone_perso||'';
-    document.getElementById('f-email-perso').value = e.email_perso||'';
-    // Date d'entrée = ancienneté réelle (1er contrat de l'historique, voir
-    // migration 20260824130000) — plus modifiable ici une fois un contrat
-    // créé, seul "🔄 Nouveau contrat" fait évoluer l'historique.
-    document.getElementById('f-entree').readOnly = true;
-    document.getElementById('f-entree-hint').textContent = '(ancienneté — voir historique ci-dessous)';
-    document.getElementById('contrats-section').style.display = isUuid(id) ? 'block' : 'none';
-    if (isUuid(id)) loadContratsHistory(id);
-    document.getElementById('portail-section').style.display = isUuid(id) ? 'block' : 'none';
-    if (isUuid(id)) renderPortailStatus(e);
-  } else {
-    document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
-    document.getElementById('edit-id').value = '';
-    ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes','f-adresse','f-tel-perso','f-email-perso'].forEach(id=>document.getElementById(id).value='');
-    document.getElementById('f-entree').value = new Date().toISOString().split('T')[0];
-    document.getElementById('f-entree').readOnly = false;
-    document.getElementById('f-entree-hint').textContent = '';
-    document.getElementById('f-contrat').value = 'CDI';
-    document.getElementById('f-classe').value = '1';
-    document.getElementById('f-heures').value = '35';
-    document.getElementById('f-hsup').value = '0';
-    document.getElementById('contrats-section').style.display = 'none';
-    document.getElementById('portail-section').style.display = 'none';
-  }
+  document.getElementById('modal-title').innerHTML = '<span>👤</span> Nouveau salarié';
+  document.getElementById('edit-id').value = '';
+  ['f-nom','f-prenom','f-sortie','f-poste','f-taux','f-notes','f-adresse','f-tel-perso','f-email-perso'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-entree').value = eqToday();
+  document.getElementById('f-entree-hint').textContent = '';
+  document.getElementById('f-contrat').value = 'CDI';
+  document.getElementById('f-classe').value = '1';
+  document.getElementById('f-heures').value = '35';
+  document.getElementById('f-hsup').value = '0';
   updateModalCalc();
 }
 
-// Portail salarié — bouton "Activer l'accès" sur la fiche (voir Edge
-// Function activer-portail, chantier 0 du 2026-08-24). Nécessite un email
-// personnel (l'invitation Supabase Auth part dessus) ; une fois activé,
-// l'action n'est plus réversible depuis l'app (dissocier un compte n'est
-// pas dans le périmètre du portail, hors scope pour l'instant).
+// Portail salarié — bouton "Activer l'accès" de la fiche (voir Edge Function
+// activer-portail, chantier 0 du 2026-08-24). Nécessite un email personnel
+// (l'invitation Supabase Auth part dessus) ; une fois activé, l'action n'est
+// plus réversible depuis l'app (dissocier un compte n'est pas dans le
+// périmètre du portail, hors scope pour l'instant).
 function renderPortailStatus(e) {
   const el = document.getElementById('portail-status');
   if (!el) return;
   if (e.portail_actif) {
-    el.innerHTML = '<span style="color:var(--ok,#10b981)">✅ Accès portail activé</span>';
+    el.innerHTML = '<span class="eq-pill eq-p-ok">Accès activé</span> <span class="eq-hint">Le salarié consulte ses heures et son solde de congés.</span>';
   } else if (!e.email_perso) {
-    el.innerHTML = '<span style="color:var(--muted)">Ajoutez un email personnel ci-dessus pour pouvoir activer l\'accès.</span>';
+    el.innerHTML = '<span class="eq-hint">Ajoutez un e-mail personnel dans l\'onglet Identité pour pouvoir ouvrir le portail.</span>';
   } else {
-    el.innerHTML = `<button type="button" class="btn btn-ghost btn-xs" onclick="activerPortailAccess('${e.id}')">📧 Activer l'accès portail</button>`;
+    el.innerHTML = `<span class="eq-hint">Une invitation partira sur ${taEsc(e.email_perso)}.</span>
+      <div><button type="button" class="btn btn-primary btn-sm" onclick="activerPortailAccess('${e.id}')">📧 Activer l'accès portail</button></div>`;
   }
 }
 
@@ -1150,7 +1156,7 @@ async function activerPortailAccess(id) {
   const { data: { session } } = await db.auth.getSession();
   if (!session) return;
   const el = document.getElementById('portail-status');
-  if (el) el.innerHTML = '<span style="color:var(--muted)">Envoi de l\'invitation…</span>';
+  if (el) el.innerHTML = '<span class="eq-hint">Envoi de l\'invitation…</span>';
   try {
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/activer-portail`, {
       method: 'POST',
@@ -1163,78 +1169,431 @@ async function activerPortailAccess(id) {
     });
     const result = await resp.json();
     if (!result.ok) {
-      if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur : ${result.message || 'échec de l\'activation'}</span>`;
+      if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur : ${taEsc(result.message || 'échec de l\'activation')}</span>`;
       return;
     }
     const emp = employees.find(x => x.id === id);
     if (emp) emp.portail_actif = true;
-    if (el) el.innerHTML = '<span style="color:var(--ok,#10b981)">✅ Invitation envoyée — le salarié peut désormais définir son mot de passe.</span>';
+    ptgToast('✓ Invitation envoyée — le salarié peut définir son mot de passe');
     syncEmployeesFromSupabase({ silent: true });
+    eqRenderFiche();
   } catch (err) {
-    if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur réseau : ${err.message}</span>`;
+    if (el) el.innerHTML = `<span style="color:var(--danger)">Erreur réseau : ${taEsc(err.message)}</span>`;
   }
 }
 
-async function loadContratsHistory(id) {
-  const el = document.getElementById('contrats-list');
+// ═══════════════════════════════════════════
+// FICHE SALARIÉ — panneau latéral à 3 onglets
+// ═══════════════════════════════════════════
+// Salaire & contrat : conditions en vigueur + historique (table `remunerations`,
+// une ligne datée par évolution, regroupées par contrat). Identité : nom,
+// notes, coordonnées. Accès & badge : badge kiosque, portail, corbeille.
+// Les conditions (taux, classe, heures, poste) ne se modifient que par
+// « Évolution de salaire » ou « Nouveau contrat », pour garder l'historique.
+const EQ = { id: null, tab: 'salaire', hist: null, histFor: null, histErr: '', editCtr: false, confirmDel: false, delMsg: '', dlg: null };
+
+const REMU_MOTIFS = {
+  debut_contrat: 'Début de contrat',
+  augmentation_individuelle: 'Augmentation individuelle',
+  augmentation_generale: 'Augmentation générale',
+  changement_classe: 'Changement de classe / promotion',
+  avenant: 'Avenant (heures, poste…)',
+  minimum_conventionnel: 'Mise au minimum',
+  correction: 'Correction de saisie',
+};
+const EQ_TYPES = ['CDI', 'CDD', 'Apprentissage', 'Intérim', 'Temps partiel', 'Stage'];
+
+function eqEmp() { return EQ.id ? employees.find(e => e.id === EQ.id) || null : null; }
+
+function eqAnciennete(iso) {
+  if (!iso) return '';
+  const a = new Date(iso + 'T12:00'), b = new Date(eqToday() + 'T12:00');
+  let m = (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth();
+  if (b.getDate() < a.getDate()) m--;
+  if (m < 0) return 'arrive le ' + fmtDate(iso);
+  const y = Math.floor(m / 12); m %= 12;
+  return ((y ? y + ' an' + (y > 1 ? 's' : '') : '') + (y && m ? ' ' : '') + (m ? m + ' mois' : '') || 'moins d’un mois') + ' d’ancienneté';
+}
+
+function eqOpenFiche(id, tab) {
+  if (!employees.some(e => e.id === id)) return;
+  const same = EQ.id === id;
+  if (!same) { EQ.editCtr = false; EQ.confirmDel = false; EQ.delMsg = ''; }
+  EQ.tab = tab || (same ? EQ.tab : 'salaire');
+  EQ.id = id;
+  if (EQ.histFor !== id) { EQ.hist = null; EQ.histErr = ''; EQ.histFor = id; eqLoadHist(id); }
+  eqRenderFiche();
+}
+
+function eqCloseFiche() {
+  EQ.id = null; EQ.dlg = null; EQ.editCtr = false; EQ.confirmDel = false;
+  const d = document.getElementById('eq-drawer'); if (d) { d.className = ''; d.innerHTML = ''; }
+  const g = document.getElementById('eq-dlg'); if (g) g.innerHTML = '';
+}
+
+// Appelée à chaque rendu de la liste (synchro, temps réel…) : met la fiche
+// ouverte à jour sans perdre une saisie en cours.
+function eqRefreshFiche() {
+  if (!EQ.id) return;
+  if (!eqEmp()) { eqCloseFiche(); return; }
+  eqRenderFiche();
+}
+
+async function eqLoadHist(id) {
   const db = window.SupabaseDB;
-  if (!el || !db) return;
-  el.innerHTML = '<span style="color:var(--muted)">Chargement…</span>';
-  const { data, error } = await db.rpc('get_contrats_rh', { p_employe_id: id });
-  if (error) { el.innerHTML = `<span style="color:var(--danger)">Erreur : ${error.message}</span>`; return; }
-  const rows = data || [];
-  if (!rows.length) { el.innerHTML = '<span style="color:var(--muted)">Aucun historique</span>'; return; }
-  el.innerHTML = rows.map((c, i) => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;${i>0?'border-top:1px solid var(--border)':''}">
-    <span style="flex:1">${i===0?'<b>Actuel</b> · ':''}${fmtDate(c.date_debut)} → ${c.date_fin?fmtDate(c.date_fin):'en cours'}</span>
-    <span style="color:var(--muted)">${c.type_contrat} · Cl.${c.classe_num} · ${parseFloat(c.taux_horaire).toFixed(2)}€/h</span>
-  </div>`).join('');
-}
-
-function openContratModal(id) {
-  if (!id) return;
-  const e = employees.find(x => x.id === id);
-  if (!e) return;
-  document.getElementById('fc-employe-id').value = id;
-  document.getElementById('fc-debut').value = new Date().toISOString().split('T')[0];
-  document.getElementById('fc-fin').value = '';
-  document.getElementById('fc-contrat').value = e.type_contrat || 'CDI';
-  document.getElementById('fc-poste').value = e.poste || '';
-  document.getElementById('fc-classe').value = resolveClasse(e).toString();
-  document.getElementById('fc-heures').value = e.heures_semaine || 35;
-  document.getElementById('fc-hsup').value = e.heures_sup_semaine || 0;
-  document.getElementById('fc-taux').value = e.taux_horaire || '';
-  document.getElementById('contrat-modal-overlay').classList.add('open');
-}
-
-function closeContratModal() {
-  document.getElementById('contrat-modal-overlay').classList.remove('open');
-}
-
-async function saveContrat() {
-  const employeId = document.getElementById('fc-employe-id').value;
-  const db = window.SupabaseDB;
-  if (!employeId || !db) return;
-  const dateDebut = document.getElementById('fc-debut').value;
-  if (!dateDebut) { alert('La date de début est requise'); return; }
-  const { data, error } = await db.rpc('upsert_contrat_rh', {
-    p_employe_id: employeId,
-    p_date_debut: dateDebut,
-    p_date_fin: document.getElementById('fc-fin').value || null,
-    p_type_contrat: document.getElementById('fc-contrat').value,
-    p_classe_num: parseInt(document.getElementById('fc-classe').value) || 1,
-    p_taux_horaire: parseFloat(document.getElementById('fc-taux').value) || 0,
-    p_heures_semaine: parseFloat(document.getElementById('fc-heures').value) || 35,
-    p_heures_sup_semaine: parseFloat(document.getElementById('fc-hsup').value) || 0,
-    p_poste: document.getElementById('fc-poste').value.trim(),
+  if (!db || !isUuid(id)) { EQ.hist = []; return; }
+  const { data, error } = await db.rpc('get_remunerations_rh', { p_employe_id: id });
+  if (EQ.histFor !== id) return;
+  if (error) { EQ.hist = []; EQ.histErr = error.message; eqRenderFiche(); return; }
+  // Regroupe par contrat (les lignes arrivent du plus récent au plus ancien)
+  const contrats = [];
+  (data || []).forEach(r => {
+    let c = contrats.find(x => x.id === r.contrat_id);
+    if (!c) { c = { id: r.contrat_id, debut: r.contrat_debut, fin: r.contrat_fin, type: r.type_contrat, lignes: [] }; contrats.push(c); }
+    c.lignes.push(r);
   });
-  if (error || data?.ok === false) {
-    ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue'));
-    return;
-  }
-  ptgToast('✓ Nouveau contrat créé');
-  closeContratModal();
+  EQ.hist = contrats;
+  EQ.histErr = '';
+  if (EQ.id === id) eqRenderFiche();
+}
+
+function eqReloadHist() { if (EQ.id) { EQ.histFor = EQ.id; eqLoadHist(EQ.id); } }
+
+// Re-rendu en gardant les valeurs tapées et le focus (champs à id du panneau).
+function _eqKeepInputs(root, render) {
+  const vals = {};
+  root.querySelectorAll('input[id],select[id],textarea[id]').forEach(el => { vals[el.id] = el.type === 'checkbox' ? el.checked : el.value; });
+  const act = document.activeElement && root.contains(document.activeElement) ? document.activeElement : null;
+  const focusId = act && act.id, pos = act && act.selectionStart;
+  const scroll = root.querySelector('.eq-dr-body')?.scrollTop;
+  render();
+  Object.entries(vals).forEach(([k, v]) => { const el = document.getElementById(k); if (el && root.contains(el)) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } });
+  const body = root.querySelector('.eq-dr-body'); if (body && scroll) body.scrollTop = scroll;
+  if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (pos != null) el.setSelectionRange(pos, pos); } catch (_) {} } }
+}
+
+function eqRenderFiche() {
+  const root = document.getElementById('eq-drawer');
+  if (!root) return;
+  const e = eqEmp();
+  if (!e) { root.className = ''; root.innerHTML = ''; return; }
+  const wasOpen = root.classList.contains('open') && root.dataset.id === e.id && root.dataset.tab === EQ.tab;
+  const draw = () => {
+    const cl = getCcmClass(resolveClasse(e));
+    const etat = eqEtat(e);
+    const tabs = [['salaire', 'Salaire & contrat'], ['identite', 'Identité'], ['acces', 'Accès & badge']];
+    root.className = 'open';
+    root.dataset.id = e.id; root.dataset.tab = EQ.tab;
+    root.innerHTML = `<div class="eq-dr-back" onclick="eqCloseFiche()"></div>
+    <aside class="eq-dr" role="dialog" aria-label="Fiche de ${taEsc(e.prenom)} ${taEsc(e.nom)}">
+      <div class="eq-dr-head">
+        <div class="eq-dr-top">
+          <div class="eq-avatar">${taEsc((e.prenom || '?')[0] + (e.nom || '?')[0])}</div>
+          <div class="eq-dr-title"><h2>${taEsc(e.prenom)} ${taEsc(e.nom)}</h2>
+            <p>${taEsc(e.poste || '—')} · ${taEsc(e.type_contrat || '')} ${e.date_sortie ? (eqIsExited(e) ? 'terminé le ' : 'jusqu’au ') + fmtDate(e.date_sortie) : 'en cours'} · ${eqAnciennete(e.date_entree)}</p></div>
+          <button class="btn btn-ghost btn-sm" onclick="eqCloseFiche()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="eq-chips">${eqChips(etat)}<span class="grp-badge grp-${cl.groupe}" style="width:auto;height:auto;padding:2px 8px;font-size:11px">Cl.${resolveClasse(e)} · ${cl.groupe}</span>${e.hasBadge ? '<span class="eq-pill eq-p-ok">Badge associé</span>' : ''}</div>
+        <nav class="eq-tabs" role="tablist">${tabs.map(([k, l]) => `<button class="eq-tab ${EQ.tab === k ? 'on' : ''}" role="tab" aria-selected="${EQ.tab === k}" onclick="EQ.tab='${k}';eqRenderFiche()">${l}</button>`).join('')}</nav>
+      </div>
+      <div class="eq-dr-body">${!isUuid(e.id) ? '<div class="eq-note">Fiche en cours d’enregistrement… réessayez dans un instant.</div>' : EQ.tab === 'identite' ? eqTabIdentite(e) : EQ.tab === 'acces' ? eqTabAcces(e) : eqTabSalaire(e)}</div>
+    </aside>`;
+    if (EQ.tab === 'acces') renderPortailStatus(e);
+  };
+  if (wasOpen) _eqKeepInputs(root, draw); else draw();
+}
+
+function eqTabSalaire(e) {
+  const cn = resolveClasse(e), cl = getCcmClass(cn), s = calcSalary(e);
+  const taux = parseFloat(e.taux_horaire) || 0, min = getEffectiveMin(cn), d = taux - min, exempt = isMinWageExempt(e);
+  const exited = eqIsExited(e);
+  const hs = parseFloat(e.heures_sup_semaine) || 0;
+  const hist = EQ.hist;
+  const prochaine = hist && hist[0] ? [...hist[0].lignes].reverse().find(l => l.a_venir) : (e.hausse_date ? { date_effet: e.hausse_date, taux_horaire: e.hausse_taux } : null);
+
+  let histHtml;
+  if (hist === null) histHtml = '<span class="eq-hint">Chargement…</span>';
+  else if (EQ.histErr) histHtml = `<span style="color:var(--danger)">Erreur : ${taEsc(EQ.histErr)}</span>`;
+  else if (!hist.length) histHtml = '<span class="eq-hint">Aucun historique.</span>';
+  else histHtml = hist.map((c, ci) => {
+    const vig = ci === 0 ? c.lignes.findIndex(l => !l.a_venir) : -1;
+    const lignes = c.lignes.map((l, li) => {
+      const p = c.lignes[li + 1];
+      const t = parseFloat(l.taux_horaire), pt = p ? parseFloat(p.taux_horaire) : 0;
+      const ch = [];
+      if (p) {
+        if (p.classe_num !== l.classe_num) ch.push(`Cl.${p.classe_num} → ${l.classe_num}`);
+        if (parseFloat(p.heures_semaine) !== parseFloat(l.heures_semaine) || parseFloat(p.heures_sup_semaine) !== parseFloat(l.heures_sup_semaine))
+          ch.push(`${parseFloat(p.heures_semaine)}+${parseFloat(p.heures_sup_semaine)} h → ${parseFloat(l.heures_semaine)}+${parseFloat(l.heures_sup_semaine)} h`);
+        if ((p.poste || '') !== (l.poste || '')) ch.push('poste : ' + taEsc(l.poste || '—'));
+      }
+      const desc = p ? ch.join(' · ') : `Cl.${l.classe_num} · ${parseFloat(l.heures_semaine)} h${parseFloat(l.heures_sup_semaine) ? ' + ' + parseFloat(l.heures_sup_semaine) : ''}${l.poste ? ' · ' + taEsc(l.poste) : ''}`;
+      const meta = [REMU_MOTIFS[l.motif] || l.motif, l.note, l.saisi_par && l.saisi_par !== 'reprise' ? 'saisi par ' + l.saisi_par : ''].filter(Boolean).map(taEsc).join(' · ');
+      return `<div class="eq-line ${li === vig ? 'now' : ''} ${l.a_venir ? 'next' : ''}">
+        <span class="num">${fmtDate(l.date_effet)}</span>
+        <span class="num"><b>${eqFmtTaux(t)}/h</b> ${p && pt > 0 && t !== pt ? `<span class="${t > pt ? 'eq-up' : 'eq-down'}">${eqPct(pt, t)}</span>` : ''}
+          ${li === vig ? '<span class="eq-pill eq-p-accent">en vigueur</span>' : ''}${l.a_venir ? '<span class="eq-pill eq-p-warn">à venir</span>' : ''}
+          <span class="eq-hint">${desc}</span></span>
+        <span class="eq-line-meta">${meta}</span>
+      </div>`;
+    }).join('');
+    const corr = ci === 0 && EQ.editCtr ? `<div class="eq-inline">
+        <div class="fg"><label for="eq-ec-type">Type</label><select id="eq-ec-type">${EQ_TYPES.map(t => `<option ${t === c.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+        <div class="fg"><label for="eq-ec-fin">Date de fin</label><input type="date" id="eq-ec-fin" value="${c.fin || ''}"></div>
+        <button class="btn btn-primary btn-sm" onclick="eqSaveCorrection()">Enregistrer</button>
+        <button class="btn btn-ghost btn-sm" onclick="EQ.editCtr=false;eqRenderFiche()">Annuler</button>
+        <span class="eq-hint" style="flex-basis:100%">Pour un renouvellement ou un passage en CDI, utilisez plutôt « Nouveau contrat » : l’ancien reste dans l’historique.</span>
+      </div>` : '';
+    const vu = ci === 0 && exited ? (e.alerteVue
+      ? `<button class="btn btn-ghost btn-xs" onclick="marquerAlerteContratVue('${e.id}',false)" title="Refaire apparaître ce contrat dans le bandeau d'alertes">👁 Réafficher l’alerte</button>`
+      : `<button class="btn btn-ghost btn-xs" onclick="marquerAlerteContratVue('${e.id}')" title="Pas de renouvellement prévu, salarié conservé : retire juste l'alerte">👁 Vu</button>`) : '';
+    return `<div class="eq-ctr ${ci ? 'old' : ''}">
+      <div class="eq-ctr-h"><span><b>${taEsc(c.type)}</b> <span class="eq-hint">· du ${fmtDate(c.debut)} ${c.fin ? 'au ' + fmtDate(c.fin) : '· en cours'}</span></span>
+        <span>${vu}${ci === 0 && !EQ.editCtr ? `<button class="btn btn-ghost btn-xs" onclick="EQ.editCtr=true;eqRenderFiche()">Corriger type / fin</button>` : ''}</span></div>
+      ${corr}${lignes}
+    </div>`;
+  }).join('');
+
+  return `
+  ${prochaine && !exited ? `<div class="eq-soon">↗ <span>Le <b>${eqFmtDateLong(prochaine.date_effet)}</b> : ${eqFmtTaux(prochaine.taux_horaire)}/h <span class="eq-up">${taux > 0 ? eqPct(taux, parseFloat(prochaine.taux_horaire)) : ''}</span>${prochaine.motif ? ' · ' + taEsc(REMU_MOTIFS[prochaine.motif] || prochaine.motif) : ''} — s’appliquera tout seul.</span></div>` : ''}
+  <section class="eq-box">
+    <h3>${exited ? 'Dernières conditions (contrat terminé)' : 'En vigueur aujourd’hui'} <button class="btn btn-primary btn-sm" onclick="eqOpenEvol()">📈 Faire évoluer le salaire</button></h3>
+    <div class="eq-kv num">
+      <div><small>Taux horaire</small><strong class="big">${eqFmtTaux(taux)}</strong>${s.rate > taux + 0.001 ? `<small style="color:var(--warn)">payé au minimum : ${eqFmtTaux(s.rate)}</small>` : ''}</div>
+      <div><small>Classe · groupe</small><strong>Cl.${cn} · ${cl.groupe}</strong><small>${taEsc(cl.desc)}</small></div>
+      <div><small>Temps de travail</small><strong>${parseFloat(e.heures_semaine) || 35} h / sem</strong><small>${hs ? '+ ' + hs + ' h sup habituelles' : 'sans heures sup'}</small></div>
+      <div><small>Minimum applicable</small><strong>${eqFmtTaux(min)}</strong><small style="color:${exempt ? 'var(--muted)' : d < 0 ? 'var(--danger)' : 'var(--success)'}">${exempt ? 'barème ' + (e.type_contrat === 'Stage' ? 'stagiaire' : 'apprenti') : (d >= 0 ? '+' : '') + d.toFixed(2).replace('.', ',') + ' € ' + (getCcmMinRate(cn) < settings.smic ? '(SMIC)' : '(grille CCM)')}</small></div>
+      <div><small>Brut mensuel</small><strong>${fmt(s.monthly)}</strong><small>${s.supPay ? 'dont ' + fmt(s.supPay) + ' d’heures sup' : 'base seule'}</small></div>
+      <div><small>Coût employeur</small><strong style="color:var(--teal)">${fmt(s.costAnnual)} / an</strong><small>brut annuel ${fmt(s.annual)}</small></div>
+    </div>
+  </section>
+  <section class="eq-box">
+    <h3>Historique <button class="btn btn-ghost btn-sm" onclick="eqOpenContrat()">🔄 Nouveau contrat</button></h3>
+    ${histHtml}
+  </section>`;
+}
+
+function eqTabIdentite(e) {
+  return `<section class="eq-box"><h3>Identité</h3>
+    <div class="form-grid">
+      <div class="fg"><label for="eq-i-nom">Nom</label><input id="eq-i-nom" value="${taEsc(e.nom)}"></div>
+      <div class="fg"><label for="eq-i-prenom">Prénom</label><input id="eq-i-prenom" value="${taEsc(e.prenom)}"></div>
+      <div class="fg full"><label for="eq-i-entree">Date d’entrée</label><input id="eq-i-entree" value="${fmtDate(e.date_entree)} — ${eqAnciennete(e.date_entree)}" readonly><span class="eq-hint">Début du premier contrat (sert aux congés payés). Se modifie par l’historique des contrats.</span></div>
+      <div class="fg full"><label for="eq-i-notes">Notes</label><textarea id="eq-i-notes" rows="2">${taEsc(e.notes)}</textarea></div>
+    </div></section>
+  <section class="eq-box"><h3>Coordonnées personnelles <span class="eq-hint" style="text-transform:none;letter-spacing:0;font-weight:400">optionnel</span></h3>
+    <div class="form-grid">
+      <div class="fg full"><label for="eq-i-adr">Adresse postale</label><input id="eq-i-adr" value="${taEsc(e.adresse)}" placeholder="12 rue de l’Exemple, 72000 Le Mans"></div>
+      <div class="fg"><label for="eq-i-tel">Téléphone personnel</label><input id="eq-i-tel" type="tel" value="${taEsc(e.telephone_perso)}"></div>
+      <div class="fg"><label for="eq-i-mail">E-mail personnel</label><input id="eq-i-mail" type="email" value="${taEsc(e.email_perso)}"><span class="eq-hint">Nécessaire pour ouvrir le portail salarié.</span></div>
+    </div></section>
+  <div class="eq-actions"><button class="btn btn-primary" onclick="eqSaveIdentite()">💾 Enregistrer</button></div>`;
+}
+
+function eqTabAcces(e) {
+  return `<section class="eq-box"><h3>Badge du kiosque</h3>
+    ${e.hasBadge ? '<div><span class="eq-pill eq-p-ok">Badge associé</span></div>' : '<span class="eq-hint">Aucun badge. Cliquez puis passez le badge sur le lecteur USB.</span>'}
+    <div><button class="btn ${e.hasBadge ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="openBadgeModal('${e.id}')">📡 ${e.hasBadge ? 'Remplacer ou dissocier le badge' : 'Associer un badge'}</button></div>
+  </section>
+  <section class="eq-box"><h3>Portail salarié</h3><div id="portail-status" class="eq-stack"></div></section>
+  <section class="eq-box eq-danger-zone"><h3>Retirer de l’équipe</h3>
+    <span class="eq-hint">La fiche part dans la corbeille de l’onglet Équipe ; elle reste récupérable tant qu’elle n’est pas purgée. Pour un départ en fin de contrat avec retour possible (saisonnier), ne la supprimez pas : marquez plutôt l’alerte « Vu ».</span>
+    ${EQ.delMsg ? `<div class="eq-note" style="color:var(--danger)">${taEsc(EQ.delMsg)}</div>` : ''}
+    ${EQ.confirmDel ? `<div class="eq-inline"><span style="flex:1">Mettre ${taEsc(e.prenom)} ${taEsc(e.nom)} à la corbeille ?</span>
+        <button class="btn btn-danger btn-sm" onclick="eqDeleteConfirmed()">Oui, mettre à la corbeille</button>
+        <button class="btn btn-ghost btn-sm" onclick="EQ.confirmDel=false;eqRenderFiche()">Annuler</button></div>`
+      : `<div><button class="btn btn-danger btn-sm" onclick="EQ.confirmDel=true;EQ.delMsg='';eqRenderFiche()">🗑 Mettre à la corbeille</button></div>`}
+  </section>`;
+}
+
+async function eqSaveIdentite() {
+  const e = eqEmp(); if (!e) return;
+  const v = id => document.getElementById(id).value.trim();
+  const upd = { ...e, nom: v('eq-i-nom'), prenom: v('eq-i-prenom'), notes: v('eq-i-notes'), adresse: v('eq-i-adr'), telephone_perso: v('eq-i-tel'), email_perso: v('eq-i-mail') };
+  if (!upd.nom || !upd.prenom) { ptgToast('Nom et prénom requis'); return; }
+  const id = await pushEmployeeToSupabase(upd);
+  if (!id) return;
+  Object.assign(e, upd);
+  saveData();
+  ptgToast('✓ Fiche enregistrée');
+  document.getElementById('eq-drawer').dataset.tab = ''; // re-rendu complet (valeurs enregistrées)
+  refresh();
+  syncEmployeesFromSupabase({ silent: true });
+}
+
+// Correction du type ou de la date de fin du contrat courant (erreur de saisie,
+// prolongation). Passe par upsert_employe_rh, qui ne touche plus aux conditions.
+async function eqSaveCorrection() {
+  const e = eqEmp(); if (!e) return;
+  const type = document.getElementById('eq-ec-type').value, fin = document.getElementById('eq-ec-fin').value || null;
+  const id = await pushEmployeeToSupabase({ ...e, type_contrat: type, date_sortie: fin });
+  if (!id) return;
+  EQ.editCtr = false;
+  ptgToast('✓ Contrat corrigé');
   await syncEmployeesFromSupabase({ silent: true });
-  if (document.getElementById('modal-overlay').classList.contains('open')) loadContratsHistory(employeId);
+  eqReloadHist();
+}
+
+async function eqDeleteConfirmed() {
+  const e = eqEmp(); if (!e) return;
+  const adm = await adminsParmi([e.id]);
+  if (adm.length) { EQ.confirmDel = false; EQ.delMsg = `${adm[0]} est administrateur RH : retirez d’abord ce droit dans Paramètres.`; eqRenderFiche(); return; }
+  const id = e.id;
+  eqCloseFiche();
+  employees = employees.filter(x => x.id !== id);
+  saveData();
+  refresh();
+  deleteEmployeeFromSupabase(id);
+  ptgToast(`${e.prenom} ${e.nom} mis à la corbeille`);
+}
+
+// ── Fenêtres de la fiche (Évolution de salaire, Nouveau contrat) ─────────────
+function eqFirstNextMonth() { const t = eqToday(); const y = +t.slice(0, 4), m = +t.slice(5, 7); return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; }
+function eqFirstJan() { return (+eqToday().slice(0, 4) + 1) + '-01-01'; }
+function eqClasseOptions(sel) {
+  return Object.keys(ccmClasses).map(k => { const c = ccmClasses[k]; return `<option value="${k}" ${+k === +sel ? 'selected' : ''}>Classe ${k} · groupe ${c.groupe} — ${taEsc(c.desc)}</option>`; }).join('');
+}
+function eqCloseDlg() { EQ.dlg = null; const g = document.getElementById('eq-dlg'); if (g) g.innerHTML = ''; }
+function eqRenderDlg() {
+  const g = document.getElementById('eq-dlg');
+  if (!g) return;
+  if (!EQ.dlg) { g.innerHTML = ''; return; }
+  const html = EQ.dlg.kind === 'evol' ? eqDlgEvol() : eqDlgContrat();
+  const act = document.activeElement && g.contains(document.activeElement) ? document.activeElement : null;
+  const focusId = act && act.id, pos = act && act.selectionStart;
+  g.innerHTML = `<div class="eq-dlg-bg" onclick="if(event.target===this)eqCloseDlg()"><div class="eq-dlg" role="dialog" aria-modal="true">${html}</div></div>`;
+  if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (pos != null) el.setSelectionRange(pos, pos); } catch (_) {} } }
+}
+
+// Évolution de salaire : même contrat, une ligne datée de plus dans l'historique.
+function eqOpenEvol() {
+  const e = eqEmp(); if (!e || !isUuid(e.id)) return;
+  EQ.dlg = { kind: 'evol', motif: '', date: eqFirstNextMonth(), taux: parseFloat(e.taux_horaire) || 0, classe: resolveClasse(e),
+             h: parseFloat(e.heures_semaine) || 35, hs: parseFloat(e.heures_sup_semaine) || 0, poste: e.poste || '', note: '', pct: '', busy: false };
+  eqRenderDlg();
+}
+function eqEv(k, v, rerender = true) {
+  const ev = EQ.dlg, e = eqEmp(); if (!ev || !e) return;
+  if (k === 'taux') { ev.taux = parseFloat(v) || 0; ev.pct = ''; }
+  else if (k === 'pct') { ev.pct = v; const p = parseFloat(String(v).replace(',', '.')); if (!isNaN(p)) ev.taux = Math.round((parseFloat(e.taux_horaire) || 0) * (1 + p / 100) * 100) / 100; }
+  else if (k === 'classe') ev.classe = parseInt(v) || 1;
+  else if (k === 'h' || k === 'hs') ev[k] = parseFloat(v) || 0;
+  else if (k === 'motif') { ev.motif = v; if (v === 'minimum_conventionnel') { ev.taux = Math.ceil(getEffectiveMin(ev.classe) * 100) / 100; ev.pct = ''; } }
+  else if (k === 'setmin') { ev.taux = Math.ceil(getEffectiveMin(ev.classe) * 100) / 100; ev.pct = ''; }
+  else ev[k] = v;
+  if (rerender) eqRenderDlg();
+}
+function eqDlgEvol() {
+  const e = eqEmp(), ev = EQ.dlg;
+  const cur = { taux: parseFloat(e.taux_horaire) || 0, classe: resolveClasse(e), h: parseFloat(e.heures_semaine) || 35, hs: parseFloat(e.heures_sup_semaine) || 0, poste: e.poste || '' };
+  const chg = k => (k === 'taux' ? Math.abs(ev.taux - cur.taux) > 0.001 : ev[k] !== cur[k]);
+  const sA = calcSalary(e), sN = calcSalary({ ...e, taux_horaire: ev.taux, classe_num: ev.classe, heures_semaine: ev.h, heures_sup_semaine: ev.hs });
+  const min = getEffectiveMin(ev.classe), today = eqToday(), nm = eqFirstNextMonth(), fj = eqFirstJan();
+  const lines = [];
+  if (chg('taux')) lines.push(`Taux : ${eqFmtTaux(cur.taux)} → <b>${eqFmtTaux(ev.taux)}</b> ${cur.taux > 0 ? `<span class="${ev.taux > cur.taux ? 'eq-up' : 'eq-down'}">${eqPct(cur.taux, ev.taux)}</span>` : ''}`);
+  if (chg('classe')) lines.push(`Classe : ${cur.classe} → <b>${ev.classe}</b> (groupe ${getCcmClass(ev.classe).groupe})`);
+  if (chg('h') || chg('hs')) lines.push(`Temps : ${cur.h} h + ${cur.hs} → <b>${ev.h} h + ${ev.hs}</b>`);
+  if (chg('poste')) lines.push(`Poste : <b>${taEsc(ev.poste)}</b>`);
+  const nothing = !lines.length;
+  if (!nothing) lines.push(`Brut mensuel : ${fmt(sA.monthly)} → <b>${fmt(sN.monthly)}</b> · coût employeur ${sN.costAnnual >= sA.costAnnual ? '+' : ''}${fmt(sN.costAnnual - sA.costAnnual)} / an`);
+  const under = !isMinWageExempt(e) && ev.taux < min - 0.001;
+  const ok = ev.motif && ev.date && !nothing && !ev.busy;
+  const row = (k, lbl, curTxt, input) => `<tr class="${chg(k) ? 'chg' : ''}"><td>${lbl}</td><td class="eq-cur num">${curTxt}</td><td>${input}</td></tr>`;
+  return `<h2>📈 Évolution de salaire · ${taEsc(e.prenom)} ${taEsc(e.nom)}</h2>
+    <p class="eq-sub">Le contrat ne change pas : une ligne datée s’ajoute à l’historique, les précédentes restent telles quelles.</p>
+    <div class="fg"><label>Motif</label><div class="eq-motifs">${Object.entries(REMU_MOTIFS).filter(([k]) => k !== 'debut_contrat').map(([k, l]) => `<button type="button" class="eq-motif ${ev.motif === k ? 'on' : ''}" onclick="eqEv('motif','${k}')">${l}</button>`).join('')}</div></div>
+    <div class="fg"><label for="eq-ev-date">Date d’effet</label>
+      <div class="eq-quick"><input type="date" id="eq-ev-date" value="${ev.date}" onchange="eqEv('date',this.value)">
+        <button type="button" class="btn btn-sm ${ev.date === today ? 'btn-primary' : 'btn-ghost'}" onclick="eqEv('date','${today}')">Aujourd’hui</button>
+        <button type="button" class="btn btn-sm ${ev.date === nm ? 'btn-primary' : 'btn-ghost'}" onclick="eqEv('date','${nm}')">${eqFmtDateLong(nm)}</button>
+        <button type="button" class="btn btn-sm ${ev.date === fj ? 'btn-primary' : 'btn-ghost'}" onclick="eqEv('date','${fj}')">${eqFmtDateLong(fj)}</button></div>
+      ${ev.date > today ? '<span class="eq-hint">S’appliquera automatiquement à cette date ; d’ici là, la fiche l’annonce « à venir ».</span>' : ''}</div>
+    <table class="eq-cmp"><tbody>
+      ${row('taux', 'Taux horaire', eqFmtTaux(cur.taux), `<input type="number" step="0.01" id="eq-ev-taux" value="${ev.taux.toFixed(2)}" oninput="eqEv('taux',this.value)" aria-label="Nouveau taux">
+        <div class="eq-pct"><span class="eq-hint">ou</span><input type="number" step="0.1" id="eq-ev-pct" value="${taEsc(ev.pct)}" placeholder="+ %" oninput="eqEv('pct',this.value)" aria-label="Hausse en pourcentage"><span class="eq-hint">%</span></div>`)}
+      ${row('classe', 'Classe CCM', `Cl.${cur.classe} · ${getCcmClass(cur.classe).groupe}`, `<select id="eq-ev-classe" onchange="eqEv('classe',this.value)" aria-label="Nouvelle classe">${eqClasseOptions(ev.classe)}</select>`)}
+      ${row('h', 'Heures / semaine', cur.h + ' h', `<input type="number" step="0.5" id="eq-ev-h" value="${ev.h}" oninput="eqEv('h',this.value)" aria-label="Heures par semaine">`)}
+      ${row('hs', 'Heures sup habituelles', cur.hs + ' h', `<input type="number" step="0.5" id="eq-ev-hs" value="${ev.hs}" oninput="eqEv('hs',this.value)" aria-label="Heures sup habituelles">`)}
+      ${row('poste', 'Poste', taEsc(cur.poste || '—'), `<input id="eq-ev-poste" value="${taEsc(ev.poste)}" oninput="eqEv('poste',this.value)" aria-label="Poste">`)}
+    </tbody></table>
+    <div class="fg"><label for="eq-ev-note">Note <span style="font-weight:400;text-transform:none">(optionnel)</span></label><input id="eq-ev-note" value="${taEsc(ev.note)}" placeholder="Ex. entretien annuel 2026, NAO…" oninput="eqEv('note',this.value,false)"></div>
+    <div class="eq-summary">${nothing ? '<span class="eq-hint">Modifiez au moins un élément pour voir l’effet.</span>' : lines.map(l => `<span>${l}</span>`).join('')}
+      ${under ? `<span class="eq-warnl">⚠ Sous le minimum de la classe ${ev.classe} (${eqFmtTaux(min)}). <button type="button" class="btn btn-ghost btn-xs" onclick="eqEv('setmin')">Mettre au minimum</button></span>` : ''}</div>
+    <div class="eq-actions">${!ev.motif && !nothing ? '<span class="eq-hint">Choisissez un motif pour enregistrer.</span>' : ''}
+      <button class="btn btn-ghost" onclick="eqCloseDlg()">Annuler</button><button class="btn btn-primary" onclick="eqSaveEvol()" ${ok ? '' : 'disabled'}>💾 Enregistrer l’évolution</button></div>`;
+}
+async function eqSaveEvol() {
+  const e = eqEmp(), ev = EQ.dlg, db = window.SupabaseDB;
+  if (!e || !ev || !db || ev.busy) return;
+  ev.busy = true; eqRenderDlg();
+  const { data, error } = await db.rpc('ajouter_remuneration_rh', {
+    p_employe_id: e.id, p_date_effet: ev.date, p_classe_num: ev.classe, p_taux_horaire: ev.taux,
+    p_heures_semaine: ev.h, p_heures_sup_semaine: ev.hs, p_poste: (ev.poste || '').trim(), p_motif: ev.motif, p_note: (ev.note || '').trim(),
+  });
+  if (error || data?.ok === false) { ev.busy = false; eqRenderDlg(); ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  ptgToast(ev.date > eqToday() ? `✓ Évolution enregistrée — appliquée le ${fmtDate(ev.date)}` : '✓ Évolution enregistrée');
+  eqCloseDlg();
+  await syncEmployeesFromSupabase({ silent: true });
+  eqReloadHist();
+}
+
+// Nouveau contrat : renouvellement de CDD, passage en CDI, reprise (saisonnier).
+function eqOpenContrat() {
+  const e = eqEmp(); if (!e || !isUuid(e.id)) return;
+  const today = eqToday();
+  const debut = e.date_sortie && e.date_sortie < today ? taAdd(e.date_sortie, 1) : today;
+  EQ.dlg = { kind: 'contrat', type: e.type_contrat === 'CDD' ? 'CDI' : (e.type_contrat || 'CDI'), debut, fin: '', clore: true,
+             taux: parseFloat(e.taux_horaire) || 0, classe: resolveClasse(e), h: parseFloat(e.heures_semaine) || 35, hs: parseFloat(e.heures_sup_semaine) || 0, poste: e.poste || '', busy: false };
+  eqRenderDlg();
+}
+function eqNc(k, v, rerender = false) {
+  const nc = EQ.dlg; if (!nc) return;
+  if (k === 'clore') nc.clore = !!v;
+  else if (k === 'taux' || k === 'h' || k === 'hs') nc[k] = parseFloat(v) || 0;
+  else if (k === 'classe') nc.classe = parseInt(v) || 1;
+  else nc[k] = v;
+  if (rerender) eqRenderDlg();
+}
+function eqDlgContrat() {
+  const e = eqEmp(), nc = EQ.dlg;
+  const ouvert = !e.date_sortie || e.date_sortie >= nc.debut;
+  const veille = nc.debut ? taAdd(nc.debut, -1) : '';
+  return `<h2>🔄 Nouveau contrat · ${taEsc(e.prenom)} ${taEsc(e.nom)}</h2>
+    <p class="eq-sub">Pour un renouvellement de CDD, un passage en CDI ou une reprise (saisonnier). Pour une simple hausse de salaire, utilisez « Faire évoluer le salaire ».</p>
+    <div class="form-grid">
+      <div class="fg"><label for="eq-nc-type">Type de contrat</label><select id="eq-nc-type" onchange="eqNc('type',this.value)">${EQ_TYPES.map(t => `<option ${t === nc.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="fg"><label for="eq-nc-debut">Début</label><input type="date" id="eq-nc-debut" value="${nc.debut}" onchange="eqNc('debut',this.value,true)"></div>
+      <div class="fg"><label for="eq-nc-fin">Fin <span style="font-weight:400;text-transform:none">(vide pour un CDI)</span></label><input type="date" id="eq-nc-fin" value="${nc.fin}" onchange="eqNc('fin',this.value)"></div>
+      <div class="fg" style="justify-content:flex-end">${ouvert && nc.debut
+        ? `<label class="eq-check"><input type="checkbox" id="eq-nc-clore" ${nc.clore ? 'checked' : ''} onchange="eqNc('clore',this.checked)"> Terminer le ${taEsc(e.type_contrat || 'contrat')} actuel le ${fmtDate(veille)} (veille)</label>`
+        : `<span class="eq-hint">Le ${taEsc(e.type_contrat || 'contrat')} précédent s’est terminé le ${fmtDate(e.date_sortie)}.</span>`}</div>
+      <div class="fg"><label for="eq-nc-taux">Taux horaire de départ (€)</label><input type="number" step="0.01" id="eq-nc-taux" value="${nc.taux.toFixed(2)}" oninput="eqNc('taux',this.value)"></div>
+      <div class="fg"><label for="eq-nc-classe">Classe CCM</label><select id="eq-nc-classe" onchange="eqNc('classe',this.value)">${eqClasseOptions(nc.classe)}</select></div>
+      <div class="fg"><label for="eq-nc-h">Heures / semaine</label><input type="number" step="0.5" id="eq-nc-h" value="${nc.h}" oninput="eqNc('h',this.value)"></div>
+      <div class="fg"><label for="eq-nc-hs">Heures sup habituelles</label><input type="number" step="0.5" id="eq-nc-hs" value="${nc.hs}" oninput="eqNc('hs',this.value)"></div>
+      <div class="fg full"><label for="eq-nc-poste">Poste</label><input id="eq-nc-poste" value="${taEsc(nc.poste)}" oninput="eqNc('poste',this.value)"></div>
+    </div>
+    <span class="eq-hint">Conditions reprises du contrat actuel : modifiez-les si elles changent avec le nouveau contrat.</span>
+    <div class="eq-actions"><button class="btn btn-ghost" onclick="eqCloseDlg()">Annuler</button><button class="btn btn-primary" onclick="eqSaveContrat()" ${nc.busy ? 'disabled' : ''}>💾 Créer le contrat</button></div>`;
+}
+async function eqSaveContrat() {
+  const e = eqEmp(), nc = EQ.dlg, db = window.SupabaseDB;
+  if (!e || !nc || !db || nc.busy) return;
+  if (!nc.debut) { ptgToast('La date de début est requise'); return; }
+  if (nc.fin && nc.fin < nc.debut) { ptgToast('La date de fin est avant la date de début'); return; }
+  if (!(nc.taux > 0)) { ptgToast('Le taux horaire est requis'); return; }
+  const ouvert = !e.date_sortie || e.date_sortie >= nc.debut;
+  nc.busy = true; eqRenderDlg();
+  const { data, error } = await db.rpc('upsert_contrat_rh', {
+    p_employe_id: e.id, p_date_debut: nc.debut, p_date_fin: nc.fin || null, p_type_contrat: nc.type,
+    p_classe_num: nc.classe, p_taux_horaire: nc.taux, p_heures_semaine: nc.h || 35, p_heures_sup_semaine: nc.hs,
+    p_poste: (nc.poste || '').trim(), p_clore_precedent: ouvert && nc.clore,
+  });
+  if (error || data?.ok === false) { nc.busy = false; eqRenderDlg(); ptgToast('Erreur : ' + (data?.message || error?.message || 'inconnue')); return; }
+  ptgToast('✓ Nouveau contrat créé');
+  eqCloseDlg();
+  await syncEmployeesFromSupabase({ silent: true });
+  eqReloadHist();
 }
 
 function closeModal() {
@@ -1438,16 +1797,6 @@ async function dissocierBadge() {
   refresh();
 }
 
-async function deleteEmp(id) {
-  const adm = await adminsParmi([id]);
-  if (adm.length) { alert(`${adm[0]} est administrateur RH.\nRetire d'abord ce droit dans Paramètres avant de supprimer la fiche.`); return; }
-  if (!confirm('Supprimer ce salarié ?')) return;
-  employees = employees.filter(e=>e.id!==id);
-  saveData();
-  refresh();
-  deleteEmployeeFromSupabase(id);
-}
-
 function filterAlerts() {
   document.getElementById('filter-status').value='alerts';
   renderTable();
@@ -1487,6 +1836,7 @@ function showTab(id) {
   document.getElementById('tab-'+id).classList.add('active');
   document.querySelectorAll(`[data-tab="${id}"]`).forEach(b=>b.classList.add('active'));
   window.scrollTo({top:0,behavior:'instant'});
+  if (id!=='team') eqCloseFiche(); // la fiche salarié ne reste pas ouverte sur les autres onglets
   if (id==='team') renderTable();
   if (id==='optim') renderOptim();
   if (id==='settings') renderSettings();
@@ -1747,6 +2097,9 @@ function resetIndivSim() {
 // ═══════════════════════════════════════════
 document.addEventListener('keydown',e=>{
   if ((e.ctrlKey||e.metaKey)&&e.key==='n'){e.preventDefault();openModal();}
+  if (e.key==='Escape' && !document.querySelector('.overlay.open')) {
+    if (EQ.dlg) eqCloseDlg(); else if (EQ.id) eqCloseFiche();
+  }
 });
 
 // ═══════════════════════════════════════════

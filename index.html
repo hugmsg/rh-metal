@@ -174,34 +174,35 @@
   </div>
 
   <!-- ═══════════════ TAB: ÉQUIPE ═══════════════ -->
+  <!-- Liste allégée ; un clic sur une ligne ouvre la fiche (panneau latéral #eq-drawer, rendu par app.js) -->
   <div class="tab" id="tab-team">
-    <div class="section-header">
-      <div class="section-title">👥 Gestion de l'équipe</div>
-      <div class="actions-row">
-        <input class="search" type="search" placeholder="🔍 Rechercher…" id="search-input" oninput="renderTable()">
-        <select class="filter-sel" id="filter-contrat" onchange="renderTable()">
-          <option value="">Tous contrats</option>
-          <option>CDI</option><option>CDD</option><option>Apprentissage</option>
-          <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
-        </select>
-        <select class="filter-sel" id="filter-groupe" onchange="renderTable()">
-          <option value="">Tous groupes</option>
-          <option>A</option><option>B</option><option>C</option><option>D</option>
-          <option>E</option><option>F</option><option>G</option><option>H</option><option>I</option>
-        </select>
-        <select class="filter-sel" id="filter-status" onchange="renderTable()">
-          <option value="">Actifs + sortis</option>
-          <option value="active">Actifs seulement</option>
-          <option value="exited">Sortis seulement</option>
-          <option value="alerts">⚠️ Alertes</option>
-        </select>
-        <button class="btn btn-ghost btn-sm" onclick="toggleCorbeille()">🗑 Corbeille</button>
-        <button class="btn btn-primary btn-sm" onclick="openModal()">+ Ajouter</button>
-      </div>
+    <div class="eq-toolbar">
+      <div class="section-title">👥 Équipe</div>
+      <input class="search" type="search" placeholder="🔍 Nom, poste…" id="search-input" oninput="renderTable()" aria-label="Rechercher">
+      <select class="filter-sel" id="filter-contrat" onchange="renderTable()" aria-label="Filtrer par contrat">
+        <option value="">Tous contrats</option>
+        <option>CDI</option><option>CDD</option><option>Apprentissage</option>
+        <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
+      </select>
+      <select class="filter-sel" id="filter-groupe" onchange="renderTable()" aria-label="Filtrer par groupe">
+        <option value="">Tous groupes</option>
+        <option>A</option><option>B</option><option>C</option><option>D</option>
+        <option>E</option><option>F</option><option>G</option><option>H</option><option>I</option>
+      </select>
+      <select class="filter-sel" id="filter-status" onchange="renderTable()" aria-label="Filtrer par statut">
+        <option value="active">En poste</option>
+        <option value="alerts">⚠️ À vérifier</option>
+        <option value="exited">Sortis</option>
+        <option value="">Tous</option>
+      </select>
+      <label class="eq-toggle"><input type="checkbox" id="eq-detail" onchange="toggleDetailPaie(this.checked)"> Détail paie</label>
+      <span class="eq-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="toggleCorbeille()">🗑 Corbeille</button>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ Nouveau salarié</button>
     </div>
 
-    <!-- Contrats arrivés à échéance non traités (chantier "Équipe = source de vérité") -->
-    <div id="equipe-alertes-contrats" style="display:none;margin-bottom:16px;"></div>
+    <!-- Contrats arrivés à échéance non traités -->
+    <div id="equipe-alertes-contrats" style="display:none;margin-bottom:12px;"></div>
 
     <!-- Comptes sonotrad-pwa (Pointage) sans fiche RH -->
     <div id="unlinked-ptg-section" style="display:none;margin-bottom:16px;">
@@ -221,43 +222,41 @@
     <div class="bulk-bar" id="bulk-bar">
       <span class="bulk-count" id="bulk-count">0 sélectionné(s)</span>
       <div class="bulk-sep"></div>
-      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">🗑️ Supprimer</button>
-      <button class="btn btn-ghost btn-sm" onclick="bulkExportCSV()">⬇ Exporter sélection</button>
-      <button class="btn btn-warn btn-sm" onclick="bulkSetSortie()">📤 Marquer sortis aujourd'hui</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkExportCSV()">⬇ Exporter</button>
+      <button class="btn btn-warn btn-sm" onclick="bulkSetSortie()">📤 Sortis aujourd'hui</button>
+      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">🗑️ Corbeille</button>
       <div class="bulk-sep"></div>
       <button class="btn btn-ghost btn-sm" onclick="clearSelection()">✕ Désélectionner</button>
     </div>
 
-    <!-- Table -->
-    <div class="tbl-wrap">
+    <!-- Table (cartes en dessous de 760 px) -->
+    <div class="tbl-wrap eq-tbl" id="eq-tbl">
       <table id="main-table">
         <thead>
           <tr>
-            <th style="width:32px"><div class="cb-wrap"><input type="checkbox" id="cb-all" onchange="toggleSelectAll(this)"></div></th>
+            <th style="width:32px"><div class="cb-wrap"><input type="checkbox" id="cb-all" onchange="toggleSelectAll(this)" aria-label="Tout sélectionner"></div></th>
             <th onclick="sortBy('nom')">Salarié <span class="sort-icon">↕</span></th>
-            <th onclick="sortBy('date_entree')">Entrée <span class="sort-icon">↕</span></th>
-            <th>Sortie</th>
             <th onclick="sortBy('type_contrat')">Contrat <span class="sort-icon">↕</span></th>
-            <th>Poste</th>
-            <th onclick="sortBy('groupe')">Grp <span class="sort-icon">↕</span></th>
-            <th>Classe</th>
-            <th>H/sem</th>
-            <th>H.Sup/sem</th>
-            <th data-tip="Taux Mini SMIC">SMIC €/h</th>
-            <th data-tip="Taux Mini CCM Métallurgie">Mini CCM</th>
-            <th onclick="sortBy('taux_horaire')" data-tip="Taux horaire salarié">Taux salarié <span class="sort-icon">↕</span></th>
-            <th>Δ vs CCM</th>
-            <th onclick="sortBy('sal_mensuel')">Brut/mois <span class="sort-icon">↕</span></th>
-            <th>H.Sup brut/mois</th>
-            <th>Brut/an</th>
-            <th data-tip="Brut + charges patronales estimées">Coût total/an</th>
-            <th>Actions</th>
+            <th class="eq-det" onclick="sortBy('date_entree')">Entrée <span class="sort-icon">↕</span></th>
+            <th class="eq-det">Sortie</th>
+            <th onclick="sortBy('classe_num')">Classe <span class="sort-icon">↕</span></th>
+            <th class="r">Temps</th>
+            <th class="r eq-det">SMIC</th>
+            <th class="r eq-det">Mini CCM</th>
+            <th class="r" onclick="sortBy('taux_horaire')">Taux <span class="sort-icon">↕</span></th>
+            <th class="r eq-det" data-tip="Taux saisi moins le minimum applicable">Écart mini</th>
+            <th class="r" onclick="sortBy('sal_mensuel')">Brut / mois <span class="sort-icon">↕</span></th>
+            <th class="r eq-det">H. sup / mois</th>
+            <th class="r eq-det">Brut / an</th>
+            <th class="r" data-tip="Brut + charges patronales estimées">Coût / an</th>
+            <th>État</th>
           </tr>
         </thead>
         <tbody id="table-body"></tbody>
         <tfoot id="table-foot"></tfoot>
       </table>
     </div>
+    <div class="eq-cards" id="eq-cards"></div>
   </div>
 
   <!-- ═══════════════ TAB: OPTIMISATION ═══════════════ -->
@@ -535,7 +534,7 @@
     <div class="fg"><label>Nom</label><input id="f-nom" placeholder="MARTIN"></div>
     <div class="fg"><label>Prénom</label><input id="f-prenom" placeholder="Jean"></div>
     <div class="fg"><label>Date d'entrée <span id="f-entree-hint" style="font-weight:400;color:var(--muted)"></span></label><input id="f-entree" type="date"></div>
-    <div class="fg"><label>Date de sortie (si applicable)</label><input id="f-sortie" type="date"></div>
+    <div class="fg"><label>Fin du contrat <span style="font-weight:400;color:var(--muted)">(vide pour un CDI)</span></label><input id="f-sortie" type="date"></div>
     <div class="fg"><label>Type de contrat</label>
       <select id="f-contrat">
         <option>CDI</option><option>CDD</option><option>Apprentissage</option>
@@ -574,28 +573,12 @@
     <div class="fg"><label>H.Supplémentaires habituelles / sem</label><input id="f-hsup" type="number" value="0" step="0.5" oninput="updateModalCalc()"></div>
     <div class="fg"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
     <div class="fg"><label>Notes / Observations</label><input id="f-notes" placeholder="Optionnel"></div>
-
-    <!-- Historique des contrats : visible seulement en édition (pas à la création, où le 1er contrat n'existe pas encore) -->
-    <div class="fg full" id="contrats-section" style="display:none;margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
-      <label style="font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between">
-        <span>📄 Historique des contrats</span>
-        <button type="button" class="btn btn-ghost btn-xs" onclick="openContratModal(document.getElementById('edit-id').value)">🔄 Nouveau contrat</button>
-      </label>
-      <div id="contrats-list" style="margin-top:8px;font-size:12px"></div>
-    </div>
-
     <div class="fg full" style="margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
       <label style="font-size:13px;font-weight:700">📍 Coordonnées personnelles <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
     </div>
     <div class="fg full"><label>Adresse postale</label><input id="f-adresse" placeholder="12 rue de l'Exemple, 75000 Paris"></div>
     <div class="fg"><label>Téléphone personnel</label><input id="f-tel-perso" type="tel" placeholder="06 12 34 56 78"></div>
     <div class="fg"><label>Email personnel</label><input id="f-email-perso" type="email" placeholder="jean.martin@exemple.fr"></div>
-
-    <!-- Portail salarié : visible seulement en édition (pas de compte tant que le salarié n'existe pas encore) -->
-    <div class="fg full" id="portail-section" style="display:none;margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
-      <label style="font-size:13px;font-weight:700">🔑 Portail salarié</label>
-      <div id="portail-status" style="margin-top:8px;font-size:12px"></div>
-    </div>
 
     <!-- Mini calcul inline -->
     <div class="mini-calc full" id="modal-calc">
@@ -619,50 +602,9 @@
 </div>
 </div>
 
-<!-- ═══════════════ MODAL NOUVEAU CONTRAT (renouvellement/CDI/reprise) ═══════════════ -->
-<div class="overlay" id="contrat-modal-overlay">
-<div class="modal">
-  <div class="modal-title"><span>🔄</span> Nouveau contrat</div>
-  <div style="font-size:12px;color:var(--muted);margin:-6px 0 14px">
-    Pour un renouvellement, un passage en CDI ou une reprise (saisonnier) — crée un nouvel
-    événement contractuel, l'ancien contrat reste conservé tel quel dans l'historique.
-  </div>
-  <input type="hidden" id="fc-employe-id">
-
-  <div class="form-grid">
-    <div class="fg"><label>Date de début</label><input id="fc-debut" type="date"></div>
-    <div class="fg"><label>Date de fin (vide = CDI)</label><input id="fc-fin" type="date"></div>
-    <div class="fg"><label>Type de contrat</label>
-      <select id="fc-contrat">
-        <option>CDI</option><option>CDD</option><option>Apprentissage</option>
-        <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
-      </select>
-    </div>
-    <div class="fg"><label>Poste / Fonction</label><input id="fc-poste"></div>
-    <div class="fg"><label>Classe CCM (1 → 18)</label>
-      <select id="fc-classe">
-        <option value="1">Classe 1</option><option value="2">Classe 2</option>
-        <option value="3">Classe 3</option><option value="4">Classe 4</option>
-        <option value="5">Classe 5</option><option value="6">Classe 6</option>
-        <option value="7">Classe 7</option><option value="8">Classe 8</option>
-        <option value="9">Classe 9</option><option value="10">Classe 10</option>
-        <option value="11">Classe 11</option><option value="12">Classe 12</option>
-        <option value="13">Classe 13</option><option value="14">Classe 14</option>
-        <option value="15">Classe 15</option><option value="16">Classe 16</option>
-        <option value="17">Classe 17</option><option value="18">Classe 18</option>
-      </select>
-    </div>
-    <div class="fg"><label>Heures contractuelles / semaine</label><input id="fc-heures" type="number" step="0.5"></div>
-    <div class="fg"><label>H.Supplémentaires habituelles / sem</label><input id="fc-hsup" type="number" step="0.5"></div>
-    <div class="fg"><label>Taux horaire salarié (€)</label><input id="fc-taux" type="number" step="0.01"></div>
-  </div>
-
-  <div class="modal-actions">
-    <button class="btn btn-ghost" onclick="closeContratModal()">Annuler</button>
-    <button class="btn btn-primary" onclick="saveContrat()">💾 Créer ce contrat</button>
-  </div>
-</div>
-</div>
+<!-- Fiche salarié (panneau latéral) et ses fenêtres : rendues par app.js -->
+<div id="eq-drawer"></div>
+<div id="eq-dlg"></div>
 
 <!-- ═══════════════ MODAL BADGE NFC ═══════════════ -->
 <div class="overlay" id="badge-modal-overlay">
