@@ -66,14 +66,18 @@ CREATE INDEX pin_essais_at_idx ON public.pin_essais USING btree (at DESC);
 CREATE INDEX pin_essais_user_at_idx ON public.pin_essais USING btree (auth_user_id, at DESC);
 CREATE INDEX idx_pointages_employe_date ON public.pointages USING btree (employe_id, horodatage DESC);
 CREATE INDEX idx_pointages_valide ON public.pointages USING btree (valide) WHERE (valide = true);
+CREATE INDEX remunerations_contrat_idx ON public.remunerations USING btree (contrat_id, date_effet DESC, created_at DESC);
+CREATE INDEX remunerations_employe_idx ON public.remunerations USING btree (employe_id);
 CREATE INDEX rh_journal_at_idx ON public.rh_journal USING btree (at DESC);
 CREATE INDEX rh_journal_emp_idx ON public.rh_journal USING btree (employe_id, at DESC);
 CREATE INDEX idx_voyages_date_creation ON public.voyages USING btree (date_creation DESC);
 CREATE INDEX idx_voyages_parti ON public.voyages USING btree (parti);
 
+CREATE TRIGGER contrats_remuneration_initiale AFTER INSERT ON public.contrats FOR EACH ROW EXECUTE FUNCTION _contrat_remuneration_initiale();
 CREATE TRIGGER contrats_sync_employe AFTER INSERT OR DELETE OR UPDATE ON public.contrats FOR EACH ROW EXECUTE FUNCTION sync_employe_depuis_contrats();
 CREATE TRIGGER employes_broadcast_trigger AFTER INSERT OR DELETE OR UPDATE ON public.employes FOR EACH ROW EXECUTE FUNCTION employes_broadcast_change();
 CREATE TRIGGER employes_garder_un_admin AFTER DELETE OR UPDATE ON public.employes FOR EACH STATEMENT EXECUTE FUNCTION _garder_un_admin_rh();
+CREATE TRIGGER remunerations_vers_contrat AFTER INSERT OR DELETE OR UPDATE ON public.remunerations FOR EACH ROW EXECUTE FUNCTION _remuneration_vers_contrat();
 CREATE TRIGGER trg_sync_heures_journalieres AFTER INSERT OR UPDATE ON public.pointages FOR EACH ROW EXECUTE FUNCTION _sync_heures_journalieres();
 CREATE TRIGGER trg_voyages_touch BEFORE UPDATE ON public.voyages FOR EACH ROW EXECUTE FUNCTION _voyages_touch_updated_at();
 

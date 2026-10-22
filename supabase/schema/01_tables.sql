@@ -219,6 +219,27 @@ CREATE TABLE public.pointages (
 );
 ALTER TABLE public.pointages ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE public.remunerations (
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
+  contrat_id uuid NOT NULL,
+  employe_id uuid NOT NULL,
+  date_effet date NOT NULL,
+  classe_num smallint NOT NULL,
+  taux_horaire numeric(10,2) NOT NULL,
+  heures_semaine numeric NOT NULL,
+  heures_sup_semaine numeric DEFAULT 0 NOT NULL,
+  poste text,
+  motif text NOT NULL,
+  note text,
+  saisi_par text,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT remunerations_pkey PRIMARY KEY (id),
+  CONSTRAINT remunerations_classe_num_check CHECK (((classe_num >= 1) AND (classe_num <= 18))),
+  CONSTRAINT remunerations_motif_check CHECK ((motif = ANY (ARRAY['debut_contrat'::text, 'augmentation_individuelle'::text, 'augmentation_generale'::text, 'changement_classe'::text, 'avenant'::text, 'minimum_conventionnel'::text, 'correction'::text]))),
+  CONSTRAINT remunerations_taux_horaire_check CHECK ((taux_horaire >= (0)::numeric))
+);
+ALTER TABLE public.remunerations ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE public.rh_journal (
   id bigint DEFAULT nextval('rh_journal_id_seq'::regclass) NOT NULL,
   at timestamp with time zone DEFAULT now() NOT NULL,

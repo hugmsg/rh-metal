@@ -1,7 +1,7 @@
 # Schéma Supabase — photo de la structure réelle
 
 Projet `ajewxwxerrjnnervzjwm` (partagé rh-metal / sonotrad-pwa), schéma `public`.
-**Photo prise le 2026-10-16**, lue directement en base (pas reconstituée depuis les
+**Photo prise le 2026-10-16, mise à jour le 2026-10-22**, lue directement en base (pas reconstituée depuis les
 migrations). Chaque fichier a été comparé à la base par empreinte md5 : identiques.
 
 Ce dossier contient **la structure, pas les données** (les données sont sauvegardées à part,
@@ -12,10 +12,10 @@ voir l'export nocturne vers Drive).
 | Fichier | Contenu |
 |---|---|
 | `00_extensions_sequences.sql` | extensions, séquences |
-| `01_tables.sql` | 21 tables, clés primaires/uniques/contrôles, RLS activé |
+| `01_tables.sql` | 22 tables, clés primaires/uniques/contrôles, RLS activé |
 | `02_cles_etrangeres.sql` | clés étrangères, rattachement des séquences |
-| `03_fonctions_1..4.sql` | 91 fonctions (ordre alphabétique) |
-| `04_vues_index_triggers.sql` | 5 vues, index, 5 triggers, publication Realtime |
+| `03_fonctions_1..4.sql` | 96 fonctions (ordre alphabétique) |
+| `04_vues_index_triggers.sql` | 5 vues, index, 7 triggers, publication Realtime |
 | `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **hors Git** (dépôt public) : présent uniquement dans le dossier OneDrive `dev/rh-metal/supabase/schema/` |
 
 ## Restaurer sur un projet Supabase vierge
@@ -46,4 +46,7 @@ dans rh-metal »). Les requêtes de lecture utilisées sont celles de la session
   (sans effet sur le SQL).
 - `recalculer_journee` et `trigger_recalcul_journee` (mortes) supprimées le 2026-10-16
   (migration `20261016140000`), photo mise à jour et revérifiée.
+- Mise à jour du 2026-10-22 après la migration `20261020152358_historique_remuneration` :
+  table `remunerations`, 5 fonctions ajoutées, 3 modifiées, 2 triggers ; fonctions comparées à
+  la base par empreinte md5 : identiques.
 - `pointer_par_pin(p_pin, p_type)` n'est plus appelée par le front : candidate au ménage.

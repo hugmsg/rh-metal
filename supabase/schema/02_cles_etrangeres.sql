@@ -8,6 +8,8 @@ ALTER TABLE public.heures_corrections ADD CONSTRAINT heures_corrections_employe_
 ALTER TABLE public.heures_journalieres ADD CONSTRAINT heures_journalieres_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
 ALTER TABLE public.jours_statut ADD CONSTRAINT jours_statut_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
 ALTER TABLE public.pointages ADD CONSTRAINT pointages_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
+ALTER TABLE public.remunerations ADD CONSTRAINT remunerations_contrat_id_fkey FOREIGN KEY (contrat_id) REFERENCES contrats(id) ON DELETE CASCADE;
+ALTER TABLE public.remunerations ADD CONSTRAINT remunerations_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
 ALTER TABLE public.rh_journal ADD CONSTRAINT rh_journal_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE SET NULL;
 ALTER TABLE public.semaines_validees ADD CONSTRAINT semaines_validees_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
 ALTER TABLE public.voyages_internes ADD CONSTRAINT voyages_internes_numero_lv_fkey FOREIGN KEY (numero_lv) REFERENCES voyages(numero_lv) ON DELETE CASCADE;

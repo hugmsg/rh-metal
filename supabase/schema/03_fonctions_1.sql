@@ -6,6 +6,33 @@ AS $function$
   SELECT NOT e.supprime AND (e.acces_externe OR _employe_present(e));
 $function$;
 
+CREATE OR REPLACE FUNCTION public._appliquer_remunerations(p_contrat_id uuid DEFAULT NULL::uuid)
+ RETURNS void
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  UPDATE contrats c SET
+    classe_num         = r.classe_num,
+    taux_horaire       = r.taux_horaire,
+    heures_semaine     = r.heures_semaine,
+    heures_sup_semaine = r.heures_sup_semaine,
+    poste              = r.poste
+  FROM (
+    SELECT DISTINCT ON (r.contrat_id) r.*
+    FROM remunerations r
+    JOIN contrats c2 ON c2.id = r.contrat_id
+    CROSS JOIN LATERAL (SELECT r.date_effet <= GREATEST((now() AT TIME ZONE 'Europe/Paris')::date, c2.date_debut) AS en_vigueur) v
+    WHERE p_contrat_id IS NULL OR r.contrat_id = p_contrat_id
+    ORDER BY r.contrat_id, v.en_vigueur DESC,
+             CASE WHEN v.en_vigueur THEN r.date_effet END DESC NULLS LAST,
+             r.date_effet ASC, r.created_at DESC
+  ) r
+  WHERE c.id = r.contrat_id
+    AND (c.classe_num, c.taux_horaire, c.heures_semaine, c.heures_sup_semaine, c.poste)
+        IS DISTINCT FROM (r.classe_num, r.taux_horaire, r.heures_semaine, r.heures_sup_semaine, r.poste);
+$function$;
+
 CREATE OR REPLACE FUNCTION public._auteur_rh()
  RETURNS text
  LANGUAGE sql
@@ -57,6 +84,21 @@ BEGIN
   IF v_court >= 3 THEN
     bloque_jusqua := v_derniere + interval '10 minutes'; raison := 'court';
   END IF;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._contrat_remuneration_initiale()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  INSERT INTO remunerations (contrat_id, employe_id, date_effet, classe_num, taux_horaire,
+                             heures_semaine, heures_sup_semaine, poste, motif, saisi_par)
+  VALUES (NEW.id, NEW.employe_id, NEW.date_debut, NEW.classe_num, NEW.taux_horaire,
+          NEW.heures_semaine, NEW.heures_sup_semaine, NEW.poste, 'debut_contrat', public._auteur_rh());
+  RETURN NULL;
 END;
 $function$;
 
@@ -294,6 +336,18 @@ BEGIN
     INSERT INTO employes (nom, prenom) VALUES (p_nom, p_prenom) RETURNING id INTO v_id;
   END IF;
   RETURN v_id;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._remuneration_vers_contrat()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM public._appliquer_remunerations(COALESCE(NEW.contrat_id, OLD.contrat_id));
+  RETURN NULL;
 END;
 $function$;
 
@@ -544,6 +598,66 @@ BEGIN
   VALUES (p_employe_id, p_date, p_delta_min, p_commentaire) RETURNING id INTO v_id;
   PERFORM public._journal(p_employe_id, 'Correction ' || CASE WHEN p_delta_min > 0 THEN '+' ELSE '−' END
     || public._fmt_num(abs(p_delta_min) / 60.0) || ' h le ' || public._fmt_jour(p_date), p_commentaire);
+  RETURN jsonb_build_object('ok', true, 'id', v_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ajouter_remuneration_rh(p_employe_id uuid, p_date_effet date, p_classe_num smallint, p_taux_horaire numeric, p_heures_semaine numeric, p_heures_sup_semaine numeric, p_poste text, p_motif text, p_note text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_contrat_id uuid;
+  v_avant numeric;
+  v_id uuid;
+BEGIN
+  PERFORM public._exiger_admin_rh();
+  IF p_employe_id IS NULL OR p_date_effet IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Salarié et date d''effet requis.');
+  END IF;
+  IF p_motif IS NULL OR p_motif = 'debut_contrat' OR p_motif <> ALL (ARRAY[
+       'augmentation_individuelle', 'augmentation_generale', 'changement_classe',
+       'avenant', 'minimum_conventionnel', 'correction']) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Motif requis.');
+  END IF;
+  IF coalesce(p_taux_horaire, 0) <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Taux horaire requis.');
+  END IF;
+  IF coalesce(p_heures_semaine, 0) <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Heures par semaine requises.');
+  END IF;
+  IF p_classe_num IS NULL OR p_classe_num NOT BETWEEN 1 AND 18 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Classe invalide.');
+  END IF;
+
+  SELECT id INTO v_contrat_id FROM contrats
+  WHERE employe_id = p_employe_id
+    AND date_debut <= p_date_effet
+    AND (date_fin IS NULL OR date_fin >= p_date_effet)
+  ORDER BY date_debut DESC, created_at DESC
+  LIMIT 1;
+  IF v_contrat_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Aucun contrat en cours à cette date.');
+  END IF;
+
+  SELECT taux_horaire INTO v_avant FROM remunerations
+  WHERE contrat_id = v_contrat_id AND date_effet <= p_date_effet
+  ORDER BY date_effet DESC, created_at DESC LIMIT 1;
+
+  INSERT INTO remunerations (contrat_id, employe_id, date_effet, classe_num, taux_horaire,
+                             heures_semaine, heures_sup_semaine, poste, motif, note, saisi_par)
+  VALUES (v_contrat_id, p_employe_id, p_date_effet, p_classe_num, p_taux_horaire,
+          p_heures_semaine, coalesce(p_heures_sup_semaine, 0), nullif(trim(coalesce(p_poste, '')), ''),
+          p_motif, nullif(trim(coalesce(p_note, '')), ''), public._auteur_rh())
+  RETURNING id INTO v_id;
+
+  PERFORM public._journal(p_employe_id,
+    'Rémunération au ' || to_char(p_date_effet, 'DD/MM/YYYY') || ' : '
+      || coalesce(public._fmt_num(v_avant) || ' → ', '') || public._fmt_num(p_taux_horaire) || ' €/h, classe ' || p_classe_num,
+    p_note);
+
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END;
 $function$;

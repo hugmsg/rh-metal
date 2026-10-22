@@ -481,23 +481,34 @@ AS $function$
 $function$;
 
 CREATE OR REPLACE FUNCTION public.get_employes_rh()
- RETURNS TABLE(id uuid, nom text, prenom text, classe_num smallint, taux_horaire numeric, heures_semaine numeric, heures_sup_semaine numeric, date_entree date, date_sortie date, type_contrat text, poste text, notes text, has_badge boolean, adresse text, telephone_perso text, email_perso text, alerte_vue boolean, portail_actif boolean)
+ RETURNS TABLE(id uuid, nom text, prenom text, classe_num smallint, taux_horaire numeric, heures_semaine numeric, heures_sup_semaine numeric, date_entree date, date_sortie date, type_contrat text, poste text, notes text, has_badge boolean, adresse text, telephone_perso text, email_perso text, alerte_vue boolean, portail_actif boolean, hausse_date date, hausse_taux numeric)
  LANGUAGE sql
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
 AS $function$
   SELECT public._exiger_admin_rh();
-  SELECT id, nom, prenom, classe_num, taux_horaire, heures_semaine, heures_sup_semaine,
-         date_entree, date_sortie, type_contrat, poste, notes,
-         nfc_uid IS NOT NULL,
-         adresse, telephone_perso, email_perso,
-         COALESCE((SELECT c.alerte_vue FROM contrats c
-                   WHERE c.employe_id = employes.id
-                   ORDER BY c.date_debut DESC, c.created_at DESC LIMIT 1), false),
-         auth_user_id IS NOT NULL
-  FROM employes
-  WHERE supprime = false
-  ORDER BY nom, prenom;
+  SELECT public._appliquer_remunerations();
+  SELECT e.id, e.nom, e.prenom, e.classe_num, e.taux_horaire, e.heures_semaine, e.heures_sup_semaine,
+         e.date_entree, e.date_sortie, e.type_contrat, e.poste, e.notes,
+         e.nfc_uid IS NOT NULL,
+         e.adresse, e.telephone_perso, e.email_perso,
+         COALESCE(c.alerte_vue, false),
+         e.auth_user_id IS NOT NULL,
+         h.date_effet, h.taux_horaire
+  FROM employes e
+  LEFT JOIN LATERAL (
+    SELECT c.id, c.date_debut, c.alerte_vue FROM contrats c
+    WHERE c.employe_id = e.id
+    ORDER BY c.date_debut DESC, c.created_at DESC LIMIT 1
+  ) c ON true
+  LEFT JOIN LATERAL (
+    SELECT r.date_effet, r.taux_horaire FROM remunerations r
+    WHERE r.contrat_id = c.id
+      AND r.date_effet > GREATEST((now() AT TIME ZONE 'Europe/Paris')::date, c.date_debut)
+    ORDER BY r.date_effet, r.created_at LIMIT 1
+  ) h ON true
+  WHERE e.supprime = false
+  ORDER BY e.nom, e.prenom;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.get_employes_supprimes_rh()
@@ -587,4 +598,21 @@ BEGIN
     WHERE (p.horodatage AT TIME ZONE 'Europe/Paris')::date BETWEEN p_debut AND p_fin
     ORDER BY p.horodatage;
 END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.get_remunerations_rh(p_employe_id uuid)
+ RETURNS TABLE(id uuid, contrat_id uuid, contrat_debut date, contrat_fin date, type_contrat text, date_effet date, classe_num smallint, taux_horaire numeric, heures_semaine numeric, heures_sup_semaine numeric, poste text, motif text, note text, saisi_par text, created_at timestamp with time zone, a_venir boolean)
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT public._exiger_admin_rh();
+  SELECT r.id, c.id, c.date_debut, c.date_fin, c.type_contrat,
+         r.date_effet, r.classe_num, r.taux_horaire, r.heures_semaine, r.heures_sup_semaine,
+         r.poste, r.motif, r.note, r.saisi_par, r.created_at,
+         r.date_effet > GREATEST((now() AT TIME ZONE 'Europe/Paris')::date, c.date_debut)
+  FROM remunerations r
+  JOIN contrats c ON c.id = r.contrat_id
+  WHERE r.employe_id = p_employe_id
+  ORDER BY c.date_debut DESC, c.created_at DESC, r.date_effet DESC, r.created_at DESC;
 $function$;

@@ -237,7 +237,7 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.upsert_contrat_rh(p_employe_id uuid, p_date_debut date, p_date_fin date, p_type_contrat text, p_classe_num smallint, p_taux_horaire numeric, p_heures_semaine numeric, p_heures_sup_semaine numeric, p_poste text, p_forfait_jour boolean DEFAULT false, p_forfait_jours_an smallint DEFAULT NULL::smallint)
+CREATE OR REPLACE FUNCTION public.upsert_contrat_rh(p_employe_id uuid, p_date_debut date, p_date_fin date, p_type_contrat text, p_classe_num smallint, p_taux_horaire numeric, p_heures_semaine numeric, p_heures_sup_semaine numeric, p_poste text, p_forfait_jour boolean DEFAULT false, p_forfait_jours_an smallint DEFAULT NULL::smallint, p_clore_precedent boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -245,18 +245,40 @@ CREATE OR REPLACE FUNCTION public.upsert_contrat_rh(p_employe_id uuid, p_date_de
 AS $function$
 DECLARE
   v_id uuid;
+  v_prec record;
 BEGIN
   PERFORM public._exiger_admin_rh();
   IF p_employe_id IS NULL OR p_date_debut IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Salarié et date de début requis.');
   END IF;
+  IF p_date_fin IS NOT NULL AND p_date_fin < p_date_debut THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'La date de fin est avant la date de début.');
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM employes WHERE id = p_employe_id AND supprime = false) THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Salarié introuvable ou supprimé.');
+  END IF;
+
+  IF p_clore_precedent THEN
+    SELECT id, date_debut, date_fin INTO v_prec FROM contrats
+    WHERE employe_id = p_employe_id
+    ORDER BY date_debut DESC, created_at DESC
+    LIMIT 1;
+    IF v_prec.id IS NOT NULL AND (v_prec.date_fin IS NULL OR v_prec.date_fin >= p_date_debut) THEN
+      IF v_prec.date_debut >= p_date_debut THEN
+        RETURN jsonb_build_object('ok', false, 'message', 'Le nouveau contrat doit commencer après le début du contrat actuel.');
+      END IF;
+      UPDATE contrats SET date_fin = p_date_debut - 1 WHERE id = v_prec.id;
+    END IF;
   END IF;
 
   INSERT INTO contrats (employe_id, date_debut, date_fin, type_contrat, classe_num, taux_horaire, heures_semaine, heures_sup_semaine, poste, forfait_jour, forfait_jours_an)
   VALUES (p_employe_id, p_date_debut, p_date_fin, p_type_contrat, p_classe_num, p_taux_horaire, p_heures_semaine, p_heures_sup_semaine, p_poste, p_forfait_jour, p_forfait_jours_an)
   RETURNING id INTO v_id;
+
+  PERFORM public._journal(p_employe_id,
+    'Nouveau contrat ' || coalesce(p_type_contrat, '') || ' au ' || to_char(p_date_debut, 'DD/MM/YYYY')
+      || CASE WHEN p_date_fin IS NOT NULL THEN ' jusqu''au ' || to_char(p_date_fin, 'DD/MM/YYYY') ELSE '' END,
+    NULL);
 
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END;
@@ -358,11 +380,6 @@ BEGIN
   ELSE
     UPDATE contrats SET
       type_contrat = p_type_contrat,
-      classe_num = p_classe_num,
-      taux_horaire = p_taux_horaire,
-      heures_semaine = p_heures_semaine,
-      heures_sup_semaine = p_heures_sup_semaine,
-      poste = p_poste,
       date_fin = p_date_sortie
     WHERE id = v_contrat_id;
   END IF;
