@@ -14,24 +14,23 @@ voir l'export nocturne vers Drive).
 | `00_extensions_sequences.sql` | extensions, séquences |
 | `01_tables.sql` | 22 tables, clés primaires/uniques/contrôles, RLS activé |
 | `02_cles_etrangeres.sql` | clés étrangères, rattachement des séquences |
-| `03_fonctions_1..4.sql` | 96 fonctions (ordre alphabétique) |
+| `03_fonctions_1..4.sql` | 98 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` (2026-10-23) |
 | `04_vues_index_triggers.sql` | 5 vues, index, 7 triggers, publication Realtime |
 | `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **hors Git** (dépôt public) : présent uniquement dans le dossier OneDrive `dev/rh-metal/supabase/schema/` |
 
 ## Restaurer sur un projet Supabase vierge
 
-1. Créer le projet (même région eu-west-1 de préférence).
-2. Dans l'éditeur SQL, exécuter `SET check_function_bodies = off;` puis les fichiers dans
-   l'ordre ci-dessus (les fonctions s'appellent entre elles ; les vues et triggers ont besoin
-   des fonctions, d'où leur place après).
-3. Réimporter les données (export JSON du Drive).
-4. Recréer à la main ce qui n'est pas dans ce dossier :
-   - comptes de connexion Supabase Auth (admin RH, `kiosque@sonotrad.fr`) puis relier
-     `employes.auth_user_id` / `comptes_kiosque` ;
-   - lignes secrètes de `config_interne` et propriétés de script côté Apps Script
-     (`SUPABASE_SERVICE_KEY`, `SUPABASE_HISTORY_SECRET`…) avec les nouvelles clés du projet ;
-   - Edge Function `activer-portail` (`../functions/`) ;
-   - URL et clé publique du nouveau projet dans rh-metal, la PWA et le portail transporteur.
+Procédure complète (données, comptes, secrets, clés à changer) : `sonotrad-scripts/docs/
+restauration.md`. **Testée le 2026-10-23** sur le projet vierge `sonotrad-restauration-test` :
+structure rejouée identique à la production (empreintes md5 des fonctions, vues, contraintes,
+index, triggers, colonnes, policies, droits).
+
+En bref : dans l'éditeur SQL, `SET check_function_bodies = off;` puis les fichiers dans l'ordre
+ci-dessus (les fonctions s'appellent entre elles ; les vues et triggers ont besoin des
+fonctions, d'où leur place après). **`05_droits.sql` commence par retirer les droits que
+Supabase donne par défaut à anon/authenticated sur tout ce qui est créé dans `public`** : sans
+ces lignes, la base restaurée serait plus ouverte que la production. Ensuite les données
+(`sauvegarde_restaurer`, appelée par `restaurerSupabase()` côté Apps Script).
 
 ## Rafraîchir la photo
 
