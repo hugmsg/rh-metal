@@ -14,9 +14,9 @@ voir l'export nocturne vers Drive).
 | `00_extensions_sequences.sql` | extensions, séquences |
 | `01_tables.sql` | 22 tables, clés primaires/uniques/contrôles, RLS activé |
 | `02_cles_etrangeres.sql` | clés étrangères, rattachement des séquences |
-| `03_fonctions_1..4.sql` | 98 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` (2026-10-23) |
+| `03_fonctions_1..4.sql` | 99 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` / `sauvegarde_empreinte` (2026-10-23) |
 | `04_vues_index_triggers.sql` | 5 vues, index, 7 triggers, publication Realtime |
-| `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **hors Git** (dépôt public) : présent uniquement dans le dossier OneDrive `dev/rh-metal/supabase/schema/` |
+| `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **pas dans ce dépôt** (public) : dans le dépôt privé `sonotrad-scripts/supabase/`, avec `manifeste.json` (empreinte attendue de la structure) |
 
 ## Restaurer sur un projet Supabase vierge
 
@@ -25,7 +25,11 @@ restauration.md`. **Testée le 2026-10-23** sur le projet vierge `sonotrad-resta
 structure rejouée identique à la production (empreintes md5 des fonctions, vues, contraintes,
 index, triggers, colonnes, policies, droits).
 
-En bref : dans l'éditeur SQL, `SET check_function_bodies = off;` puis les fichiers dans l'ordre
+Le plus simple : l'outil **« Récupération SONOTRAD »** (dossier Drive « Sauvegarde Sonotrad /
+Kit de reconstruction », source `sonotrad-scripts/recuperation/`) fait tout, y compris le
+contrôle par empreinte. Chaque nuit, la sauvegarde recopie ces fichiers depuis GitHub dans le kit.
+
+À la main : dans l'éditeur SQL, `SET check_function_bodies = off;` puis les fichiers dans l'ordre
 ci-dessus (les fonctions s'appellent entre elles ; les vues et triggers ont besoin des
 fonctions, d'où leur place après). **`05_droits.sql` commence par retirer les droits que
 Supabase donne par défaut à anon/authenticated sur tout ce qui est créé dans `public`** : sans
@@ -35,7 +39,9 @@ ces lignes, la base restaurée serait plus ouverte que la production. Ensuite le
 ## Rafraîchir la photo
 
 À refaire **après chaque migration** (demander à Claude : « rafraîchis le schéma Supabase
-dans rh-metal »). Les requêtes de lecture utilisées sont celles de la session du 2026-10-16 :
+et le kit de reconstruction ») : fichiers d'ici + `05_droits.sql` et `manifeste.json` (valeur de
+`select public.sauvegarde_empreinte()` sur la production) dans `sonotrad-scripts/supabase/`.
+Si on l'oublie, la sauvegarde de nuit envoie un e-mail (empreinte différente). Les requêtes de lecture utilisées sont celles de la session du 2026-10-16 :
 `pg_get_functiondef`, `pg_get_viewdef`, `pg_get_constraintdef`, `pg_get_triggerdef`,
 `pg_policies`, `information_schema.role_table_grants` / `column_privileges`, `pg_proc.proacl`.
 
