@@ -666,6 +666,43 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.annuler_voyage(p_numero_lv text, p_motif text, p_par text, p_remplacee_par text DEFAULT NULL::text, p_type text DEFAULT NULL::text, p_destination text DEFAULT NULL::text, p_pdf_url text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF coalesce(trim(p_numero_lv), '') = '' OR coalesce(trim(p_motif), '') = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'numéro et motif requis');
+  END IF;
+
+  INSERT INTO voyages_annules (numero_lv, type, date_creation, destination, destination_adresse, poids, ml, grutage,
+         commentaire, marchandises_desc, livraison_prevue, parti, parti_le, doc_annexe, commande, conducteur,
+         immat_moteur, immat_semi, expediteur, convoi, pdf_url, annulee_par, motif, remplacee_par)
+  SELECT v.numero_lv, v.type, v.date_creation, v.destination, v.destination_adresse, v.poids, v.ml, v.grutage,
+         v.commentaire, v.marchandises_desc, v.livraison_prevue, v.parti, v.parti_le, i.doc_annexe, i.commande, i.conducteur,
+         i.immat_moteur, i.immat_semi, i.expediteur, i.convoi, i.pdf_url,
+         NULLIF(p_par, ''), trim(p_motif), NULLIF(trim(coalesce(p_remplacee_par, '')), '')
+  FROM voyages v LEFT JOIN voyages_internes i ON i.numero_lv = v.numero_lv
+  WHERE v.numero_lv = p_numero_lv
+  ON CONFLICT (numero_lv) DO NOTHING;
+
+  -- Fiche absente de Supabase (synchro jamais faite) : on garde au moins l'essentiel.
+  IF NOT FOUND THEN
+    INSERT INTO voyages_annules (numero_lv, type, destination, pdf_url, annulee_par, motif, remplacee_par)
+    VALUES (p_numero_lv, NULLIF(p_type, ''), NULLIF(p_destination, ''), NULLIF(p_pdf_url, ''),
+            NULLIF(p_par, ''), trim(p_motif), NULLIF(trim(coalesce(p_remplacee_par, '')), ''))
+    ON CONFLICT (numero_lv) DO NOTHING;
+  END IF;
+
+  DELETE FROM voyages WHERE numero_lv = p_numero_lv;
+  RETURN jsonb_build_object('ok', true);
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('ok', false, 'message', sqlerrm);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.associer_badge_nfc(p_employe_id uuid, p_uid text)
  RETURNS jsonb
  LANGUAGE plpgsql

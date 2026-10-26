@@ -299,6 +299,36 @@ CREATE TABLE public.voyages (
 );
 ALTER TABLE public.voyages ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE public.voyages_annules (
+  numero_lv text NOT NULL,
+  type text,
+  date_creation timestamp with time zone,
+  destination text,
+  destination_adresse text,
+  poids numeric,
+  ml numeric,
+  grutage boolean,
+  commentaire text,
+  marchandises_desc text,
+  livraison_prevue date,
+  parti boolean,
+  parti_le timestamp with time zone,
+  doc_annexe text,
+  commande text,
+  conducteur text,
+  immat_moteur text,
+  immat_semi text,
+  expediteur text,
+  convoi boolean,
+  pdf_url text,
+  annulee_le timestamp with time zone DEFAULT now() NOT NULL,
+  annulee_par text,
+  motif text NOT NULL,
+  remplacee_par text,
+  CONSTRAINT voyages_annules_pkey PRIMARY KEY (numero_lv)
+);
+ALTER TABLE public.voyages_annules ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE public.voyages_internes (
   numero_lv text NOT NULL,
   doc_annexe text,
