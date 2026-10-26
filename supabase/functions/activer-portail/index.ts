@@ -35,16 +35,22 @@ Deno.serve(async (req: Request) => {
     const { employe_id } = await req.json();
     if (!employe_id) return json({ ok: false, message: "employe_id requis" }, 400);
 
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // Clé secrète « default » (nouvelles clés, 2026-10-26) ; repli sur l'ancienne
+    // service_role tant qu'elle existe (désactivée fin 2026).
+    let cleSecrete = "";
+    try { cleSecrete = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}")["default"] || ""; } catch (_) { /* repli */ }
+    if (!cleSecrete) cleSecrete = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-    const { count: adminCount } = await supabaseAdmin
+    const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, cleSecrete);
+
+    const { count: adminCount, error: errAdmins } = await supabaseAdmin
       .from("employes")
       .select("id", { count: "exact", head: true })
       .eq("is_rh_admin", true)
       .not("auth_user_id", "is", null);
+    // Sans ce contrôle, une clé refusée donnait adminCount = null → pris pour
+    // « aucun admin » → appel anonyme accepté.
+    if (errAdmins || adminCount === null) return json({ ok: false, message: "Erreur serveur" }, 500);
 
     if ((adminCount ?? 0) > 0) {
       const authHeader = req.headers.get("Authorization") || "";

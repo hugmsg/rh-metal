@@ -2196,7 +2196,8 @@ function toggleTheme() {
 // MODULE POINTAGE — Supabase
 // ═══════════════════════════════════════════
 const SUPABASE_URL = 'https://ajewxwxerrjnnervzjwm.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqZXd4d3hlcnJqbm5lcnZ6andtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1MDU5MDEsImV4cCI6MjA5NzA4MTkwMX0.NJcm1_tb4BcCSileiODYP0pKJ1LRVXFTIr2idQBrALg';
+// Clé publique « publishable » (remplace l'ancienne clé anon, désactivée fin 2026)
+const SUPABASE_ANON_KEY = 'sb_publishable_Bvglc1RUZsIFR7oMtmE_bQ_eOAohcQS';
 window.SupabaseDB = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // _authRecoveryPending est d'abord déduit de façon SYNCHRONE du hash d'URL
