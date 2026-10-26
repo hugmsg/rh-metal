@@ -200,82 +200,6 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.pointer_par_pin(p_pin text, p_type text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'extensions'
-AS $function$
-DECLARE
-  v_employe employes%ROWTYPE;
-  v_verif   jsonb;
-  v_bloc    record;
-  v_heure   text;
-BEGIN
-  PERFORM _exiger_kiosque_ou_admin_rh();
-
-  PERFORM pg_advisory_xact_lock(hashtext('pin_essais:' || auth.uid()::text));
-
-  SELECT * INTO v_bloc FROM _pin_blocage(auth.uid());
-  IF v_bloc.bloque_jusqua IS NOT NULL THEN
-    IF v_bloc.raison = 'jour' THEN
-      RETURN jsonb_build_object('ok', false, 'bloque', true,
-        'message', 'Code PIN bloqué jusqu''à demain (trop d''erreurs). Utilisez votre badge ou prévenez un responsable.');
-    END IF;
-    v_heure := to_char(v_bloc.bloque_jusqua AT TIME ZONE 'Europe/Paris', 'HH24"h"MI');
-    RETURN jsonb_build_object('ok', false, 'bloque', true,
-      'message', 'Trop d''erreurs : code PIN bloqué jusqu''à ' || v_heure || '. Utilisez votre badge en attendant.');
-  END IF;
-
-  IF coalesce(p_pin, '') !~ '^[0-9]{4}$' THEN
-    RETURN jsonb_build_object('ok', false, 'message', 'Format PIN invalide (4 chiffres attendus).');
-  END IF;
-
-  SELECT * INTO v_employe
-  FROM employes
-  WHERE actif = true
-    AND supprime = false
-    AND (date_sortie IS NULL OR date_sortie >= current_date)
-    AND crypt(p_pin, pin_hash) = pin_hash
-  LIMIT 1;
-  IF NOT FOUND THEN
-    INSERT INTO pin_essais (auth_user_id, resultat) VALUES (auth.uid(), 'echec');
-    SELECT * INTO v_bloc FROM _pin_blocage(auth.uid());
-    IF v_bloc.bloque_jusqua IS NOT NULL THEN
-      INSERT INTO rh_journal (auteur, action, motif)
-      VALUES ('Kiosque', 'PIN kiosque bloqué',
-              CASE v_bloc.raison WHEN 'jour' THEN '10 erreurs dans la journée — bloqué jusqu''à demain'
-                                 ELSE '3 erreurs en 10 min — bloqué 10 min' END);
-      RETURN jsonb_build_object('ok', false, 'bloque', true,
-        'message', 'Code PIN incorrect. Trop d''erreurs : code PIN bloqué '
-          || CASE v_bloc.raison WHEN 'jour' THEN 'jusqu''à demain.' ELSE 'pendant 10 minutes.' END
-          || ' Utilisez votre badge.');
-    END IF;
-    RETURN jsonb_build_object('ok', false, 'message', 'Code PIN incorrect.');
-  END IF;
-
-  PERFORM pg_advisory_xact_lock(hashtext(v_employe.id::text));
-
-  v_verif := verifier_pointage(v_employe.id, p_type);
-  IF NOT (v_verif ->> 'ok')::boolean THEN
-    RETURN v_verif;
-  END IF;
-
-  INSERT INTO pointages (employe_id, type, source)
-  VALUES (v_employe.id, p_type, 'kiosque');
-  INSERT INTO pin_essais (auth_user_id, resultat) VALUES (auth.uid(), 'ok');
-  DELETE FROM pin_essais WHERE at < now() - interval '90 days';
-
-  RETURN jsonb_build_object(
-    'ok',     true,
-    'id',     v_employe.id,
-    'nom',    v_employe.nom,
-    'prenom', v_employe.prenom,
-    'type',   p_type
-  );
-END;
-$function$;
-
 CREATE OR REPLACE FUNCTION public.pointer_par_pin_employe(p_employe_id uuid, p_pin text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -432,38 +356,6 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.pwa_compte_importer(p_prenom text, p_nom text, p_role text, p_actif boolean, p_activites text[], p_ancien_uid text, p_employe uuid DEFAULT NULL::uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_employe uuid;
-  v_id      uuid;
-BEGIN
-  p_prenom := trim(coalesce(p_prenom, '')); p_nom := trim(coalesce(p_nom, ''));
-  IF p_prenom = '' OR p_nom = '' OR coalesce(p_ancien_uid, '') = '' THEN
-    RETURN jsonb_build_object('ok', false, 'message', 'ligne incomplète');
-  END IF;
-  SELECT id INTO v_id FROM comptes_pwa WHERE ancien_uid = p_ancien_uid;
-  IF v_id IS NOT NULL THEN
-    RETURN jsonb_build_object('ok', true, 'id', v_id, 'statut', 'déjà importé');
-  END IF;
-  v_employe := _pwa_resoudre_employe(p_prenom, p_nom, p_employe);
-  IF EXISTS (SELECT 1 FROM comptes_pwa WHERE employe_id = v_employe) THEN
-    RETURN jsonb_build_object('ok', false, 'message', 'fiche déjà reliée à un autre compte');
-  END IF;
-  INSERT INTO comptes_pwa (employe_id, role, activites, actif, ancien_uid)
-  VALUES (v_employe,
-          CASE WHEN lower(p_role) = 'admin' THEN 'admin' ELSE 'utilisateur' END,
-          CASE WHEN coalesce(array_length(p_activites, 1), 0) = 0 THEN ARRAY['loxam'] ELSE p_activites END,
-          coalesce(p_actif, true), p_ancien_uid)
-  RETURNING id INTO v_id;
-  RETURN jsonb_build_object('ok', true, 'id', v_id, 'statut', 'importé');
-END;
-$function$;
-
 CREATE OR REPLACE FUNCTION public.pwa_compte_modifier(p_compte uuid, p_role text DEFAULT NULL::text, p_activites text[] DEFAULT NULL::text[], p_actif boolean DEFAULT NULL::boolean)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -557,7 +449,7 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.pwa_connexion(p_compte uuid, p_pin text, p_ancien_ok boolean DEFAULT NULL::boolean)
+CREATE OR REPLACE FUNCTION public.pwa_connexion(p_compte uuid, p_pin text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -567,8 +459,6 @@ DECLARE
   c        comptes_pwa%ROWTYPE;
   e        employes%ROWTYPE;
   v_bloc   record;
-  v_ok     boolean;
-  v_changer boolean := false;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('connexion_pwa:' || coalesce(p_compte::text, '')));
 
@@ -593,26 +483,7 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'message', 'Format PIN invalide (4 chiffres attendus).');
   END IF;
 
-  v_ok := e.pin_hash IS NOT NULL AND crypt(p_pin, e.pin_hash) = e.pin_hash;
-
-  IF NOT v_ok AND NOT c.pin_migre THEN
-    IF p_ancien_ok IS NULL THEN
-      RETURN jsonb_build_object('ok', false, 'verifier_ancien', true, 'ancien_uid', c.ancien_uid);
-    END IF;
-    IF p_ancien_ok THEN
-      v_ok := true;
-      IF _pin_deja_pris(p_pin, e.id) THEN
-        v_changer := true;
-      ELSE
-        UPDATE employes SET pin_hash = crypt(p_pin, gen_salt('bf', 12)), updated_at = now() WHERE id = e.id;
-        UPDATE comptes_pwa SET pin_migre = true, updated_at = now() WHERE id = c.id;
-      END IF;
-    END IF;
-  ELSIF v_ok AND NOT c.pin_migre THEN
-    UPDATE comptes_pwa SET pin_migre = true, updated_at = now() WHERE id = c.id;
-  END IF;
-
-  IF NOT v_ok THEN
+  IF e.pin_hash IS NULL OR crypt(p_pin, e.pin_hash) <> e.pin_hash THEN
     INSERT INTO connexion_pwa_essais (compte_id, resultat) VALUES (c.id, 'echec');
     SELECT * INTO v_bloc FROM _connexion_pwa_blocage(c.id);
     IF v_bloc.bloque_jusqua IS NOT NULL THEN
@@ -631,6 +502,6 @@ BEGIN
   DELETE FROM connexion_pwa_essais WHERE at < now() - interval '90 days';
 
   RETURN jsonb_build_object('ok', true, 'compte', c.id, 'prenom', e.prenom, 'nom', e.nom,
-    'role', c.role, 'activites', to_jsonb(c.activites), 'pin_a_changer', v_changer);
+    'role', c.role, 'activites', to_jsonb(c.activites), 'pin_a_changer', false);
 END;
 $function$;
