@@ -99,6 +99,32 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.definir_acces_externe(p_employe_id uuid, p_externe boolean, p_motif text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE e record;
+BEGIN
+  PERFORM public._exiger_admin_rh();
+  IF coalesce(trim(p_motif), '') = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Le motif est obligatoire.');
+  END IF;
+  SELECT id, prenom, nom, acces_externe, supprime INTO e FROM public.employes WHERE id = p_employe_id FOR UPDATE;
+  IF e.id IS NULL OR e.supprime THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Salarié introuvable.');
+  END IF;
+  IF e.acces_externe = p_externe THEN
+    RETURN jsonb_build_object('ok', false, 'message', CASE WHEN p_externe THEN 'L''accès externe est déjà accordé.' ELSE 'Pas d''accès externe à retirer.' END);
+  END IF;
+  PERFORM public._journal(p_employe_id,
+    CASE WHEN p_externe THEN 'Accès externe accordé à ' ELSE 'Accès externe retiré à ' END || e.prenom || ' ' || e.nom, p_motif);
+  UPDATE public.employes SET acces_externe = p_externe, updated_at = now() WHERE id = p_employe_id;
+  RETURN jsonb_build_object('ok', true);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.definir_admin_rh(p_employe_id uuid, p_admin boolean, p_motif text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -481,7 +507,7 @@ AS $function$
 $function$;
 
 CREATE OR REPLACE FUNCTION public.get_employes_rh()
- RETURNS TABLE(id uuid, nom text, prenom text, classe_num smallint, taux_horaire numeric, heures_semaine numeric, heures_sup_semaine numeric, date_entree date, date_sortie date, type_contrat text, poste text, notes text, has_badge boolean, adresse text, telephone_perso text, email_perso text, alerte_vue boolean, portail_actif boolean, hausse_date date, hausse_taux numeric)
+ RETURNS TABLE(id uuid, nom text, prenom text, classe_num smallint, taux_horaire numeric, heures_semaine numeric, heures_sup_semaine numeric, date_entree date, date_sortie date, type_contrat text, poste text, notes text, has_badge boolean, adresse text, telephone_perso text, email_perso text, alerte_vue boolean, portail_actif boolean, hausse_date date, hausse_taux numeric, acces_externe boolean)
  LANGUAGE sql
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
@@ -494,7 +520,8 @@ AS $function$
          e.adresse, e.telephone_perso, e.email_perso,
          COALESCE(c.alerte_vue, false),
          e.auth_user_id IS NOT NULL,
-         h.date_effet, h.taux_horaire
+         h.date_effet, h.taux_horaire,
+         e.acces_externe
   FROM employes e
   LEFT JOIN LATERAL (
     SELECT c.id, c.date_debut, c.alerte_vue FROM contrats c
