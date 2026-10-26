@@ -122,6 +122,7 @@ function mapSupabaseRowToEmployee(row) {
     portail_actif: !!row.portail_actif,
     hausse_date: row.hausse_date || null,   // prochaine évolution déjà saisie (table remunerations)
     hausse_taux: row.hausse_taux ?? null,
+    acces_externe: !!row.acces_externe,
   };
 }
 
@@ -1190,7 +1191,7 @@ async function activerPortailAccess(id) {
 // notes, coordonnées. Accès & badge : badge kiosque, portail, corbeille.
 // Les conditions (taux, classe, heures, poste) ne se modifient que par
 // « Évolution de salaire » ou « Nouveau contrat », pour garder l'historique.
-const EQ = { id: null, tab: 'salaire', hist: null, histFor: null, histErr: '', editCtr: false, confirmDel: false, delMsg: '', dlg: null };
+const EQ = { id: null, tab: 'salaire', hist: null, histFor: null, histErr: '', editCtr: false, confirmDel: false, delMsg: '', dlg: null, extEdit: false };
 
 const REMU_MOTIFS = {
   debut_contrat: 'Début de contrat',
@@ -1218,7 +1219,7 @@ function eqAnciennete(iso) {
 function eqOpenFiche(id, tab) {
   if (!employees.some(e => e.id === id)) return;
   const same = EQ.id === id;
-  if (!same) { EQ.editCtr = false; EQ.confirmDel = false; EQ.delMsg = ''; }
+  if (!same) { EQ.editCtr = false; EQ.confirmDel = false; EQ.delMsg = ''; EQ.extEdit = false; }
   EQ.tab = tab || (same ? EQ.tab : 'salaire');
   EQ.id = id;
   if (EQ.histFor !== id) { EQ.hist = null; EQ.histErr = ''; EQ.histFor = id; eqLoadHist(id); }
@@ -1226,7 +1227,7 @@ function eqOpenFiche(id, tab) {
 }
 
 function eqCloseFiche() {
-  EQ.id = null; EQ.dlg = null; EQ.editCtr = false; EQ.confirmDel = false;
+  EQ.id = null; EQ.dlg = null; EQ.editCtr = false; EQ.confirmDel = false; EQ.extEdit = false;
   const d = document.getElementById('eq-drawer'); if (d) { d.className = ''; d.innerHTML = ''; }
   const g = document.getElementById('eq-dlg'); if (g) g.innerHTML = '';
 }
@@ -1396,6 +1397,7 @@ function eqTabAcces(e) {
     <div><button class="btn ${e.hasBadge ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="openBadgeModal('${e.id}')">📡 ${e.hasBadge ? 'Remplacer ou dissocier le badge' : 'Associer un badge'}</button></div>
   </section>
   <section class="eq-box"><h3>Portail salarié</h3><div id="portail-status" class="eq-stack"></div></section>
+  ${eqBoxAccesExterne(e)}
   <section class="eq-box eq-danger-zone"><h3>Retirer de l’équipe</h3>
     <span class="eq-hint">La fiche part dans la corbeille de l’onglet Équipe ; elle reste récupérable tant qu’elle n’est pas purgée. Pour un départ en fin de contrat avec retour possible (saisonnier), ne la supprimez pas : marquez plutôt l’alerte « Vu ».</span>
     ${EQ.delMsg ? `<div class="eq-note" style="color:var(--danger)">${taEsc(EQ.delMsg)}</div>` : ''}
@@ -1404,6 +1406,37 @@ function eqTabAcces(e) {
         <button class="btn btn-ghost btn-sm" onclick="EQ.confirmDel=false;eqRenderFiche()">Annuler</button></div>`
       : `<div><button class="btn btn-danger btn-sm" onclick="EQ.confirmDel=true;EQ.delMsg='';eqRenderFiche()">🗑 Mettre à la corbeille</button></div>`}
   </section>`;
+}
+
+// Accès externe : garde l'accès à la PWA sonotrad sans contrat en cours (holding,
+// prestataire). Ne permet pas de pointer. Motif obligatoire, inscrit au journal.
+function eqBoxAccesExterne(e) {
+  const on = e.acces_externe, want = EQ.extEdit ? !on : on;
+  return `<section class="eq-box"><h3>Accès aux applications</h3>
+    <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px">
+      <input type="checkbox" ${want ? 'checked' : ''} onchange="EQ.extEdit=(this.checked!==${on});eqRenderFiche()" style="margin-top:2px">
+      <span><b>Accès externe</b> ${on ? '<span class="eq-pill eq-p-accent">activé</span>' : ''}<br>
+      <span class="eq-hint">Garde l’accès à la PWA sonotrad même sans contrat en cours (personne hors effectif : holding, prestataire). Ne permet pas de pointer. Le compte PWA lui-même se gère dans la PWA (Admin).</span></span>
+    </label>
+    ${EQ.extEdit ? `<div class="eq-inline">
+        <div class="fg" style="flex:1"><label for="eq-ext-motif">Motif (obligatoire)</label><input type="text" id="eq-ext-motif" placeholder="${on ? 'ex : fin de mission' : 'ex : gère la RH depuis la holding'}"></div>
+        <button class="btn ${on ? 'btn-danger' : 'btn-primary'} btn-sm" onclick="eqSaveAccesExterne(${!on})">${on ? 'Retirer l’accès externe' : 'Donner l’accès externe'}</button>
+        <button class="btn btn-ghost btn-sm" onclick="EQ.extEdit=false;eqRenderFiche()">Annuler</button></div>` : ''}
+  </section>`;
+}
+
+async function eqSaveAccesExterne(externe) {
+  const e = eqEmp(); if (!e) return;
+  const motif = document.getElementById('eq-ext-motif').value.trim();
+  if (!motif) { ptgToast('Le motif est obligatoire'); return; }
+  const { data, error } = await window.SupabaseDB.rpc('definir_acces_externe', { p_employe_id: e.id, p_externe: externe, p_motif: motif });
+  if (error || !data?.ok) { ptgToast('⚠ ' + (error?.message || data?.message)); return; }
+  e.acces_externe = externe;
+  EQ.extEdit = false;
+  saveData();
+  ptgToast(externe ? '✓ Accès externe accordé' : '✓ Accès externe retiré');
+  eqRenderFiche();
+  syncEmployeesFromSupabase({ silent: true });
 }
 
 async function eqSaveIdentite() {

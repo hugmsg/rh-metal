@@ -122,7 +122,8 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   `employes.acces_externe = true` (fonction `_acces_applis`) : personne externe
   (ex. Hugo, holding, qui gère la RH) qui garde ses accès sans contrat SONOTRAD
   en cours — ne pointe pas (le kiosque garde la règle « présent »), n'est pas
-  salariée. Pas encore d'interface : le drapeau se pose en SQL. L'accès admin
+  salariée. Depuis le 2026-10-26 : case « Accès externe » dans la fiche (onglet
+  Accès & badge, `definir_acces_externe`, admin RH, motif obligatoire, journalisée). L'accès admin
   rh-metal (`is_rh_admin`) ne dépend pas du contrat. L'ancienne feuille
   « Sonotrad-Utilisateurs » ne sert plus (voir `sonotrad-scripts/CLAUDE.md`).
 - **Corbeille + purge définitive** (2026-08-21, migration
