@@ -515,7 +515,7 @@ un panneau nom → PIN (`pointer_par_pin_employe(p_employe_id, p_pin)`, fermetur
 Le type est déduit par `_pointer_auto` (dernier pointage du jour, anti-doublon 5 s), commun au
 badge et au PIN. Limite d'essais du PIN inchangée (par écran connecté). Maquette :
 `https://claude.ai/artifact/Udex8uTWhHMLaR7v6sCEK8`. L'ancienne `pointer_par_pin(p_pin, p_type)`
-n'est plus appelée par le front (à retirer).
+a été supprimée le 2026-10-26 (plus appelée depuis ce kiosque).
 
 **Historique — pourquoi Realtime Broadcast et pas un serveur WebSocket
 direct** : la toute première version (2026-07-30) exposait son propre
