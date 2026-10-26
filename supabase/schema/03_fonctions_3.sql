@@ -466,7 +466,7 @@ BEGIN
   END IF;
   SELECT * INTO e FROM employes WHERE id = c.employe_id;
   IF NOT _acces_applis(e) THEN
-    RETURN jsonb_build_object('ok', false, 'message', 'Accès suspendu : contrat terminé. Voir avec l''administrateur.');
+    RETURN jsonb_build_object('ok', false, 'message', 'Accès fermé. Voir avec l''administrateur.');
   END IF;
 
   SELECT * INTO v_bloc FROM _connexion_pwa_blocage(c.id);
