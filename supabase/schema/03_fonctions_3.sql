@@ -36,6 +36,30 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.lier_remplacement_voyage(p_annulee text, p_remplacante text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF coalesce(trim(p_annulee), '') = '' OR coalesce(trim(p_remplacante), '') = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'numéros requis');
+  END IF;
+  IF p_annulee = p_remplacante THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'une LV ne peut pas se remplacer elle-même');
+  END IF;
+  UPDATE voyages_annules SET remplacee_par = p_remplacante
+   WHERE numero_lv = p_annulee AND remplacee_par IS NULL;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'LV annulée introuvable ou déjà remplacée');
+  END IF;
+  RETURN jsonb_build_object('ok', true);
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('ok', false, 'message', sqlerrm);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.lire_historique_voyages(p_secret text, p_limit integer DEFAULT 50)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -82,7 +106,10 @@ BEGIN
   )
   SELECT jsonb_agg(row_to_json(t) ORDER BY t.numero_lv::int DESC)
   INTO result
-  FROM (SELECT * FROM dispo UNION ALL SELECT * FROM recents_partis UNION ALL SELECT * FROM annules) t;
+  FROM (
+    SELECT u.*, (SELECT string_agg(x.numero_lv, ', ' ORDER BY x.numero_lv) FROM voyages_annules x WHERE x.remplacee_par = u.numero_lv) AS remplace
+    FROM (SELECT * FROM dispo UNION ALL SELECT * FROM recents_partis UNION ALL SELECT * FROM annules) u
+  ) t;
 
   RETURN jsonb_build_object('ok', true, 'history', COALESCE(result, '[]'::jsonb));
 END;
