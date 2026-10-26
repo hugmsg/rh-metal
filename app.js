@@ -188,7 +188,7 @@ async function syncEmployeesFromSupabase(opts = {}) {
   // doit pas déclencher un écrasement des données locales. On garde ces
   // comptes "sans fiche RH" à part pour les proposer dans l'onglet Équipe.
   const withRh = rows.filter(r => r.classe_num !== null && r.classe_num !== undefined);
-  unlinkedPtgAccounts = rows.filter(r => r.classe_num === null || r.classe_num === undefined);
+  unlinkedPtgAccounts = rows.filter(r => (r.classe_num === null || r.classe_num === undefined) && !r.acces_externe);
   renderUnlinkedPtgAccounts();
   if (!withRh.length) return; // rien d'importé côté RH — on garde les données locales
   employees = withRh.map(mapSupabaseRowToEmployee);
@@ -219,8 +219,8 @@ function renderAccesExternes() {
     const accorde = x.accorde_le
       ? `${fmtDate(x.accorde_le)} par ${taEsc(x.accorde_par || '?')}${x.motif ? ' : « ' + taEsc(x.motif) + ' »' : ''}`
       : '<span class="eq-muted">avant le suivi</span>';
-    return `<tr class="row-emp" ${fiche ? `onclick="eqOpenFiche('${x.id}','acces')"` : 'title="Pas de fiche RH"'}>
-      <td class="eq-who"><b>${taEsc((x.nom || '').toUpperCase())} ${taEsc(x.prenom)}</b></td>
+    return `<tr class="row-emp" onclick="${fiche ? `eqOpenFiche('${x.id}','acces')` : `eqOpenRetraitExterne('${x.id}')`}">
+      <td class="eq-who"><b>${taEsc((x.nom || '').toUpperCase())} ${taEsc(x.prenom)}</b>${fiche ? '' : '<span>sans fiche RH</span>'}</td>
       <td>${contrat}</td><td>${pwa}</td><td>${x.is_rh_admin ? 'oui' : 'non'}</td><td>${accorde}</td></tr>`;
   }).join('');
   el.innerHTML = `<h3 style="margin:20px 0 4px">🔑 Accès externes (${eqExternes.length})</h3>
@@ -1164,7 +1164,33 @@ function openModal(id) {
   document.getElementById('f-classe').value = '1';
   document.getElementById('f-heures').value = '35';
   document.getElementById('f-hsup').value = '0';
+  document.getElementById('f-motif-ext').value = '';
+  document.getElementById('f-kind-row').style.display = '';
+  setModalExterne(false);
   updateModalCalc();
+}
+
+// « Personne externe » : accès PWA sans contrat — les champs contrat/paie se grisent.
+function setModalExterne(ext) {
+  const m = document.querySelector('#modal-overlay .modal');
+  m.classList.toggle('ext', ext);
+  document.getElementById('f-kind-sal').classList.toggle('on', !ext);
+  document.getElementById('f-kind-ext').classList.toggle('on', ext);
+  m.querySelectorAll('.f-ctr input, .f-ctr select').forEach(el => { el.disabled = ext; });
+  document.getElementById('modal-title').innerHTML = ext ? '<span>🔑</span> Nouvelle personne externe' : '<span>👤</span> Nouveau salarié';
+}
+
+async function saveExterne() {
+  const v = id => document.getElementById(id).value.trim();
+  if (!v('f-nom') || !v('f-prenom')) { ptgToast('Nom et prénom requis'); return; }
+  if (!v('f-motif-ext')) { ptgToast('Le motif est obligatoire'); return; }
+  const { data, error } = await window.SupabaseDB.rpc('creer_externe_rh', {
+    p_nom: v('f-nom'), p_prenom: v('f-prenom'), p_notes: v('f-notes'), p_adresse: v('f-adresse'),
+    p_telephone_perso: v('f-tel-perso'), p_email_perso: v('f-email-perso'), p_motif: v('f-motif-ext') });
+  if (error || !data?.ok) { ptgToast('⚠ ' + (error?.message || data?.message)); return; }
+  closeModal();
+  ptgToast(`✓ ${v('f-prenom')} ${v('f-nom')} ajouté aux accès externes — activez son compte dans la PWA`);
+  loadAccesExternes();
 }
 
 // Portail salarié — bouton "Activer l'accès" de la fiche (voir Edge Function
@@ -1520,12 +1546,36 @@ function eqFirstJan() { return (+eqToday().slice(0, 4) + 1) + '-01-01'; }
 function eqClasseOptions(sel) {
   return Object.keys(ccmClasses).map(k => { const c = ccmClasses[k]; return `<option value="${k}" ${+k === +sel ? 'selected' : ''}>Classe ${k} · groupe ${c.groupe} — ${taEsc(c.desc)}</option>`; }).join('');
 }
+// Personne externe sans fiche RH : seule action, retirer l'accès (→ corbeille).
+function eqOpenRetraitExterne(id) {
+  const x = eqExternes.find(r => r.id === id); if (!x) return;
+  EQ.dlg = { kind: 'ext', x };
+  eqRenderDlg();
+}
+function eqDlgExt() {
+  const x = EQ.dlg.x;
+  return `<h2>🔑 ${taEsc(x.prenom)} ${taEsc(x.nom)} · personne externe</h2>
+    <p class="eq-sub">Pas de fiche RH : retirer l’accès externe la met aussi à la corbeille (récupérable tant qu’elle n’est pas purgée). Son compte PWA ne pourra plus se connecter.</p>
+    <div class="fg"><label for="eq-rx-motif">Motif (obligatoire)</label><input id="eq-rx-motif" placeholder="ex : fin de mission"></div>
+    <div class="eq-actions"><button class="btn btn-ghost" onclick="eqCloseDlg()">Annuler</button>
+      <button class="btn btn-danger" onclick="eqSaveRetraitExterne()">Retirer l’accès</button></div>`;
+}
+async function eqSaveRetraitExterne() {
+  const x = EQ.dlg && EQ.dlg.x; if (!x) return;
+  const motif = document.getElementById('eq-rx-motif').value.trim();
+  if (!motif) { ptgToast('Le motif est obligatoire'); return; }
+  const { data, error } = await window.SupabaseDB.rpc('definir_acces_externe', { p_employe_id: x.id, p_externe: false, p_motif: motif });
+  if (error || !data?.ok) { ptgToast('⚠ ' + (error?.message || data?.message)); return; }
+  eqCloseDlg();
+  ptgToast(data.corbeille ? `✓ Accès retiré, ${x.prenom} ${x.nom} mis à la corbeille` : '✓ Accès externe retiré');
+  loadAccesExternes();
+}
 function eqCloseDlg() { EQ.dlg = null; const g = document.getElementById('eq-dlg'); if (g) g.innerHTML = ''; }
 function eqRenderDlg() {
   const g = document.getElementById('eq-dlg');
   if (!g) return;
   if (!EQ.dlg) { g.innerHTML = ''; return; }
-  const html = EQ.dlg.kind === 'evol' ? eqDlgEvol() : eqDlgContrat();
+  const html = EQ.dlg.kind === 'evol' ? eqDlgEvol() : EQ.dlg.kind === 'ext' ? eqDlgExt() : eqDlgContrat();
   const act = document.activeElement && g.contains(document.activeElement) ? document.activeElement : null;
   const focusId = act && act.id, pos = act && act.selectionStart;
   g.innerHTML = `<div class="eq-dlg-bg" onclick="if(event.target===this)eqCloseDlg()"><div class="eq-dlg" role="dialog" aria-modal="true">${html}</div></div>`;
@@ -1673,6 +1723,7 @@ function closeModal() {
 // ligne `employes` déjà liée au pin_hash côté kiosque Pointage.
 function openModalForUnlinked(id, prenom, nom) {
   openModal();
+  document.getElementById('f-kind-row').style.display = 'none';
   document.getElementById('modal-title').innerHTML = '<span>🔗</span> Compléter la fiche RH';
   document.getElementById('edit-id').value = id;
   document.getElementById('f-nom').value = nom;
@@ -1727,6 +1778,7 @@ function updateModalCalc() {
 }
 
 function saveEmployee() {
+  if (document.querySelector('#modal-overlay .modal').classList.contains('ext')) { saveExterne(); return; }
   const id = document.getElementById('edit-id').value;
   const classeNum = parseInt(document.getElementById('f-classe').value)||1;
   const cl = getCcmClass(classeNum);

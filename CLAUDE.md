@@ -126,7 +126,14 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   Accès & badge, `definir_acces_externe`, admin RH, motif obligatoire, journalisée). Accès PWA seulement
   (rh-metal ne le regarde pas). Tableau « Accès externes » sous la liste Équipe
   (`get_acces_externes_rh` : contrat, compte PWA, admin RH, dernière ligne du journal) +
-  étiquette « Externe » dans la colonne État. L'accès admin
+  étiquette « Externe » dans la colonne État.
+  **Toute personne naît dans rh-metal** (2026-10-26, migration `creation_externe`) :
+  « Nouveau salarié » propose Salarié SONOTRAD / Personne externe (champs contrat grisés,
+  `creer_externe_rh` : fiche sans contrat, `actif = false` donc hors kiosque, motif au
+  journal). La PWA n'a plus de bouton « + Nouveau » : elle active un compte depuis
+  `get_employes_annuaire` (présents + externes) et `pwa_compte_creer` refuse une personne
+  inconnue de rh-metal (ne touche plus à `actif`). Retirer l'accès d'un externe sans fiche RH
+  le met à la corbeille. L'accès admin
   rh-metal (`is_rh_admin`) ne dépend pas du contrat. L'ancienne feuille
   « Sonotrad-Utilisateurs » ne sert plus (voir `sonotrad-scripts/CLAUDE.md`).
 - **Corbeille + purge définitive** (2026-08-21, migration

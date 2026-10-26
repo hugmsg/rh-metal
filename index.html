@@ -531,20 +531,25 @@
   <div class="modal-title" id="modal-title"><span>👤</span> Nouveau salarié</div>
   <div id="modal-linked-badge" style="display:none;font-size:11px;color:#1D4ED8;background:#EFF6FF;padding:3px 8px;border-radius:8px;font-weight:600;margin:0 0 10px;">🔗 lié au compte sonotrad-pwa — nom/prénom verrouillés</div>
   <input type="hidden" id="edit-id">
+  <div class="ta-chiprow" id="f-kind-row" style="margin-bottom:14px">
+    <button type="button" class="ta-mini on" id="f-kind-sal" onclick="setModalExterne(false)">Salarié SONOTRAD</button>
+    <button type="button" class="ta-mini" id="f-kind-ext" onclick="setModalExterne(true)">Personne externe</button>
+  </div>
+  <div class="modal-hint f-ext" style="margin-bottom:12px">Accès à la PWA sonotrad sans contrat (holding, prestataire) : pas de contrat, pas de paie, pas de pointage. Le compte PWA (rôle, PIN) s’active ensuite dans la PWA, Admin → « Activer l’accès ».</div>
 
   <div class="form-grid">
     <div class="fg"><label>Nom</label><input id="f-nom" placeholder="MARTIN"></div>
     <div class="fg"><label>Prénom</label><input id="f-prenom" placeholder="Jean"></div>
-    <div class="fg"><label>Date d'entrée <span id="f-entree-hint" style="font-weight:400;color:var(--muted)"></span></label><input id="f-entree" type="date"></div>
-    <div class="fg"><label>Fin du contrat <span style="font-weight:400;color:var(--muted)">(vide pour un CDI)</span></label><input id="f-sortie" type="date"></div>
-    <div class="fg"><label>Type de contrat</label>
+    <div class="fg f-ctr"><label>Date d'entrée <span id="f-entree-hint" style="font-weight:400;color:var(--muted)"></span></label><input id="f-entree" type="date"></div>
+    <div class="fg f-ctr"><label>Fin du contrat <span style="font-weight:400;color:var(--muted)">(vide pour un CDI)</span></label><input id="f-sortie" type="date"></div>
+    <div class="fg f-ctr"><label>Type de contrat</label>
       <select id="f-contrat">
         <option>CDI</option><option>CDD</option><option>Apprentissage</option>
         <option>Intérim</option><option>Temps partiel</option><option>Stage</option>
       </select>
     </div>
-    <div class="fg"><label>Poste / Fonction</label><input id="f-poste" placeholder="Opérateur de production"></div>
-    <div class="fg"><label>Classe CCM (1 → 18) — IDCC 3248</label>
+    <div class="fg f-ctr"><label>Poste / Fonction</label><input id="f-poste" placeholder="Opérateur de production"></div>
+    <div class="fg f-ctr"><label>Classe CCM (1 → 18) — IDCC 3248</label>
       <select id="f-classe" onchange="updateModalCalc()">
         <option value="1">Classe 1 — Grp A | Exécution simple (21 700€/an brut)</option>
         <option value="2">Classe 2 — Grp A | Exécution simple+ (21 850€/an brut)</option>
@@ -566,15 +571,16 @@
         <option value="18">Classe 18 — Grp I | Direction opérationnelle (68 000€/an brut)</option>
       </select>
     </div>
-    <div class="fg" style="justify-content:center;align-items:center">
+    <div class="fg f-ctr" style="justify-content:center;align-items:center">
       <label>Groupe CCM (auto)</label>
       <div id="f-groupe-display" style="width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;background:rgba(124,108,248,.2);color:#a89cf8;margin-top:4px">A</div>
       <input type="hidden" id="f-groupe" value="A">
     </div>
-    <div class="fg"><label>Heures contractuelles / semaine</label><input id="f-heures" type="number" value="35" step="0.5" oninput="updateModalCalc()"></div>
-    <div class="fg"><label>H.Supplémentaires habituelles / sem</label><input id="f-hsup" type="number" value="0" step="0.5" oninput="updateModalCalc()"></div>
-    <div class="fg"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
+    <div class="fg f-ctr"><label>Heures contractuelles / semaine</label><input id="f-heures" type="number" value="35" step="0.5" oninput="updateModalCalc()"></div>
+    <div class="fg f-ctr"><label>H.Supplémentaires habituelles / sem</label><input id="f-hsup" type="number" value="0" step="0.5" oninput="updateModalCalc()"></div>
+    <div class="fg f-ctr"><label>Taux horaire salarié (€)</label><input id="f-taux" type="number" step="0.01" placeholder="12.00" oninput="updateModalCalc()"></div>
     <div class="fg"><label>Notes / Observations</label><input id="f-notes" placeholder="Optionnel"></div>
+    <div class="fg full f-ext"><label>Motif de l’accès externe (obligatoire)</label><input id="f-motif-ext" placeholder="ex : gère la RH depuis la holding"></div>
     <div class="fg full" style="margin-top:4px;padding-top:14px;border-top:1px solid var(--border)">
       <label style="font-size:13px;font-weight:700">📍 Coordonnées personnelles <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
     </div>
@@ -583,7 +589,7 @@
     <div class="fg"><label>Email personnel</label><input id="f-email-perso" type="email" placeholder="jean.martin@exemple.fr"></div>
 
     <!-- Mini calcul inline -->
-    <div class="mini-calc full" id="modal-calc">
+    <div class="mini-calc full f-ctr" id="modal-calc">
       <div class="row"><span>Taux mini SMIC</span><span id="mc-smic">—</span></div>
       <div class="row"><span>Taux mini CCM (Groupe)</span><span id="mc-ccm">—</span></div>
       <div class="row"><span>Salaire brut mensuel base</span><span id="mc-base">—</span></div>

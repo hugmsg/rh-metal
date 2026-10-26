@@ -317,28 +317,6 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public._pwa_resoudre_employe(p_prenom text, p_nom text, p_employe uuid)
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-DECLARE
-  v_id uuid;
-BEGIN
-  IF p_employe IS NOT NULL THEN
-    SELECT id INTO v_id FROM employes WHERE id = p_employe;
-  END IF;
-  IF v_id IS NULL THEN
-    SELECT id INTO v_id FROM employes WHERE nom = p_nom AND prenom = p_prenom;
-  END IF;
-  IF v_id IS NULL THEN
-    INSERT INTO employes (nom, prenom) VALUES (p_nom, p_prenom) RETURNING id INTO v_id;
-  END IF;
-  RETURN v_id;
-END;
-$function$;
-
 CREATE OR REPLACE FUNCTION public._remuneration_vers_contrat()
  RETURNS trigger
  LANGUAGE plpgsql

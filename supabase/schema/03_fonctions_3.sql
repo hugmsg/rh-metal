@@ -309,13 +309,9 @@ CREATE OR REPLACE FUNCTION public.pwa_compte_creer(p_prenom text, p_nom text, p_
  SET search_path TO 'public', 'extensions'
 AS $function$
 DECLARE
-  v_employe uuid;
-  v_id      uuid;
+  e    employes;
+  v_id uuid;
 BEGIN
-  p_prenom := trim(coalesce(p_prenom, '')); p_nom := trim(coalesce(p_nom, ''));
-  IF p_prenom = '' OR p_nom = '' THEN
-    RETURN jsonb_build_object('ok', false, 'message', 'Prénom et nom requis.');
-  END IF;
   IF coalesce(p_role, '') NOT IN ('admin', 'utilisateur') THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Rôle invalide.');
   END IF;
@@ -326,21 +322,23 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'message', 'PIN invalide (4 chiffres attendus).');
   END IF;
 
-  v_employe := _pwa_resoudre_employe(p_prenom, p_nom, p_employe);
-  IF EXISTS (SELECT 1 FROM comptes_pwa WHERE employe_id = v_employe) THEN
+  -- Toute personne est créée dans rh-metal (salarié ou personne externe) ; ici on n'active qu'un compte.
+  SELECT * INTO e FROM employes WHERE id = p_employe;
+  IF e.id IS NULL OR NOT _acces_applis(e) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Personne inconnue ou sans accès : créez-la d''abord dans rh-metal (salarié ou personne externe).');
+  END IF;
+  IF EXISTS (SELECT 1 FROM comptes_pwa WHERE employe_id = e.id) THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Cet utilisateur a déjà un compte.');
   END IF;
-  IF _pin_deja_pris(p_pin, v_employe) THEN
+  IF _pin_deja_pris(p_pin, e.id) THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Ce PIN est déjà utilisé par un collègue : choisissez-en un autre.');
   END IF;
 
-  UPDATE employes SET pin_hash = crypt(p_pin, gen_salt('bf', 12)), actif = true,
-         supprime = CASE WHEN classe_num IS NULL THEN false ELSE supprime END, updated_at = now()
-   WHERE id = v_employe;
+  UPDATE employes SET pin_hash = crypt(p_pin, gen_salt('bf', 12)), updated_at = now() WHERE id = e.id;
   INSERT INTO comptes_pwa (employe_id, role, activites, pin_migre)
-  VALUES (v_employe, p_role, p_activites, true)
+  VALUES (e.id, p_role, p_activites, true)
   RETURNING id INTO v_id;
-  RETURN jsonb_build_object('ok', true, 'id', v_id, 'employeId', v_employe);
+  RETURN jsonb_build_object('ok', true, 'id', v_id, 'employeId', e.id);
 END;
 $function$;
 
