@@ -123,7 +123,10 @@ Points essentiels à connaître avant de toucher à ce périmètre :
   (ex. Hugo, holding, qui gère la RH) qui garde ses accès sans contrat SONOTRAD
   en cours — ne pointe pas (le kiosque garde la règle « présent »), n'est pas
   salariée. Depuis le 2026-10-26 : case « Accès externe » dans la fiche (onglet
-  Accès & badge, `definir_acces_externe`, admin RH, motif obligatoire, journalisée). L'accès admin
+  Accès & badge, `definir_acces_externe`, admin RH, motif obligatoire, journalisée). Accès PWA seulement
+  (rh-metal ne le regarde pas). Tableau « Accès externes » sous la liste Équipe
+  (`get_acces_externes_rh` : contrat, compte PWA, admin RH, dernière ligne du journal) +
+  étiquette « Externe » dans la colonne État. L'accès admin
   rh-metal (`is_rh_admin`) ne dépend pas du contrat. L'ancienne feuille
   « Sonotrad-Utilisateurs » ne sert plus (voir `sonotrad-scripts/CLAUDE.md`).
 - **Corbeille + purge définitive** (2026-08-21, migration

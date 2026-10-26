@@ -195,6 +195,39 @@ async function syncEmployeesFromSupabase(opts = {}) {
   saveData();
   refresh();
   renderSettings();
+  loadAccesExternes();
+}
+
+// ── Accès externes : accès à la PWA sans contrat en cours (holding, prestataire) ──
+// Tableau à part sous la liste Équipe : hors paie et hors totaux.
+let eqExternes = [];
+async function loadAccesExternes() {
+  const { data, error } = await window.SupabaseDB.rpc('get_acces_externes_rh');
+  if (error) return;
+  eqExternes = data || [];
+  renderAccesExternes();
+}
+function renderAccesExternes() {
+  const el = document.getElementById('eq-externes');
+  if (!el) return;
+  if (!eqExternes.length) { el.innerHTML = ''; return; }
+  const rows = eqExternes.map(x => {
+    const fiche = employees.some(e => e.id === x.id);
+    const contrat = x.contrat_en_cours ? 'en cours' : x.date_sortie ? 'terminé le ' + fmtDate(x.date_sortie) : '—';
+    const pwa = !x.compte_pwa ? '<span class="eq-pill eq-p-warn" title="Sans compte PWA, l’accès externe ne sert à rien">aucun ⚠</span>'
+      : x.compte_actif ? taEsc(x.compte_pwa) : `${taEsc(x.compte_pwa)} <span class="eq-pill eq-p-mute">désactivé</span>`;
+    const accorde = x.accorde_le
+      ? `${fmtDate(x.accorde_le)} par ${taEsc(x.accorde_par || '?')}${x.motif ? ' : « ' + taEsc(x.motif) + ' »' : ''}`
+      : '<span class="eq-muted">avant le suivi</span>';
+    return `<tr class="row-emp" ${fiche ? `onclick="eqOpenFiche('${x.id}','acces')"` : 'title="Pas de fiche RH"'}>
+      <td class="eq-who"><b>${taEsc((x.nom || '').toUpperCase())} ${taEsc(x.prenom)}</b></td>
+      <td>${contrat}</td><td>${pwa}</td><td>${x.is_rh_admin ? 'oui' : 'non'}</td><td>${accorde}</td></tr>`;
+  }).join('');
+  el.innerHTML = `<h3 style="margin:20px 0 4px">🔑 Accès externes (${eqExternes.length})</h3>
+    <div class="eq-hint" style="margin-bottom:8px">Accès à la PWA sonotrad sans contrat en cours. Cliquez sur une ligne pour retirer l’accès s’il n’a plus lieu d’être.</div>
+    <div class="tbl-wrap"><table style="min-width:0">
+      <thead><tr><th>Personne</th><th>Contrat</th><th>Compte PWA</th><th>Admin RH</th><th>Accordé</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
 }
 
 function renderUnlinkedPtgAccounts() {
@@ -643,6 +676,7 @@ function eqEtat(e) {
   if (!exited) getAlerts(e).forEach(a => out.push({lvl:'warn', txt:'Contingent h. sup', tip:a.msg}));
   if (!exited && e.hausse_date) out.push({lvl:'accent', txt:`Hausse le ${fmtDate(e.hausse_date).slice(0,5)}`, tip:`${eqFmtTaux(e.taux_horaire)} → ${eqFmtTaux(e.hausse_taux)} le ${fmtDate(e.hausse_date)}`});
   if (!exited && e.date_sortie) out.push({lvl:'mute', txt:`Fin ${fmtDate(e.date_sortie)}`, tip:'Date de fin du contrat en cours'});
+  if (e.acces_externe) out.push({lvl:'accent', txt:'Externe', tip:'Accès externe à la PWA sans contrat en cours (voir le tableau Accès externes)'});
   if (isMinWageExempt(e)) out.push({lvl:'mute', txt: e.type_contrat === 'Stage' ? 'Barème stagiaire' : 'Barème apprenti', tip:'Barème légal spécifique : minimum SMIC/CCM non applicable'});
   return out;
 }
@@ -1415,7 +1449,7 @@ function eqBoxAccesExterne(e) {
   return `<section class="eq-box"><h3>Accès aux applications</h3>
     <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px">
       <input type="checkbox" ${want ? 'checked' : ''} onchange="EQ.extEdit=(this.checked!==${on});eqRenderFiche()" style="margin-top:2px">
-      <span><b>Accès externe</b> ${on ? '<span class="eq-pill eq-p-accent">activé</span>' : ''}<br>
+      <span><b>Accès externe (PWA)</b> ${on ? '<span class="eq-pill eq-p-accent">activé</span>' : ''}<br>
       <span class="eq-hint">Garde l’accès à la PWA sonotrad même sans contrat en cours (personne hors effectif : holding, prestataire). Ne permet pas de pointer. Le compte PWA lui-même se gère dans la PWA (Admin).</span></span>
     </label>
     ${EQ.extEdit ? `<div class="eq-inline">
