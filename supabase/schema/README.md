@@ -14,7 +14,7 @@ voir l'export nocturne vers Drive).
 | `00_extensions_sequences.sql` | extensions, séquences |
 | `01_tables.sql` | 29 tables (dont stock_* depuis le 2026-10-27), clés primaires/uniques/contrôles, RLS activé |
 | `02_cles_etrangeres.sql` | clés étrangères, rattachement des séquences |
-| `03_fonctions_1..4.sql` | 122 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` / `sauvegarde_empreinte` (2026-10-23) |
+| `03_fonctions_1..4.sql` | 123 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` / `sauvegarde_empreinte` (2026-10-23) |
 | `04_vues_index_triggers.sql` | 5 vues, index, 7 triggers, publication Realtime |
 | `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **pas dans ce dépôt** (public) : dans le dépôt privé `sonotrad-scripts/supabase/`, avec `manifeste.json` (empreinte attendue de la structure) |
 

@@ -359,6 +359,25 @@ AS $function$
     'total', (SELECT count(*) FROM stock_articles));
 $function$;
 
+CREATE OR REPLACE FUNCTION public.stock_basculer_favori(p_ref text, p_on boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF btrim(coalesce(p_ref, '')) = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'ref manquant');
+  END IF;
+  IF p_on THEN
+    INSERT INTO stock_favoris (ref) VALUES (btrim(p_ref)) ON CONFLICT (ref) DO NOTHING;
+  ELSE
+    DELETE FROM stock_favoris WHERE ref = btrim(p_ref);
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'count', (SELECT count(*) FROM stock_favoris));
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.stock_catalogue()
  RETURNS jsonb
  LANGUAGE sql
