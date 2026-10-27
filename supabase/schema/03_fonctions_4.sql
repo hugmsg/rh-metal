@@ -334,12 +334,13 @@ CREATE OR REPLACE FUNCTION public.stock_catalogue()
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  WITH lignes AS (
+  WITH tout AS (
     SELECT a.*, CASE WHEN e.ref IS NULL THEN NULL
                      WHEN e.inv_qty IS NOT NULL THEN e.inv_qty + e.delta
                      ELSE e.delta END AS qte
       FROM stock_articles a LEFT JOIN _stock_etat() e ON e.ref = a.ref
-     WHERE a.actif
+  ), lignes AS (
+    SELECT * FROM tout WHERE actif OR coalesce(qte, 0) <> 0
   )
   SELECT jsonb_build_object(
     'data', coalesce((SELECT jsonb_agg(jsonb_build_object(
@@ -349,7 +350,8 @@ AS $function$
         'stockStatus', CASE WHEN l.qte IS NOT NULL AND l.seuil IS NOT NULL
                             THEN CASE WHEN l.qte >= l.seuil THEN 'ok' ELSE 'low' END
                             WHEN l.qte IS NOT NULL THEN 'ok' ELSE 'unknown' END)
-        ORDER BY l.ordre) FROM lignes l), '[]'::jsonb),
+        || CASE WHEN l.actif THEN '{}'::jsonb ELSE '{"retiree": true}'::jsonb END
+        ORDER BY l.actif DESC, l.ordre) FROM lignes l), '[]'::jsonb),
     'count', (SELECT count(*) FROM lignes),
     'familles', coalesce((SELECT jsonb_agg(f ORDER BY f COLLATE "C")
                             FROM (SELECT DISTINCT famille AS f FROM lignes WHERE famille <> '') x), '[]'::jsonb));
@@ -399,14 +401,15 @@ AS $function$
   SELECT coalesce(jsonb_agg(f.ref ORDER BY f.ordre), '[]'::jsonb) FROM stock_favoris f;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.stock_importer_catalogue(p_refs jsonb)
+CREATE OR REPLACE FUNCTION public.stock_importer_catalogue(p_refs jsonb, p_source text DEFAULT ''::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_ajout integer; v_maj integer; v_desact integer; v_inchange integer;
+  v_ajout integer; v_maj integer; v_desact integer; v_inchange integer; v_prix integer;
+  v_retirees jsonb;
 BEGIN
   IF jsonb_typeof(p_refs) <> 'array' OR jsonb_array_length(p_refs) = 0 THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Aucune référence reçue');
@@ -424,6 +427,15 @@ BEGIN
       FROM jsonb_array_elements(p_refs) WITH ORDINALITY AS t(r, n)) x
    WHERE ref <> ''
    ORDER BY ref, n DESC;
+
+  -- Historique : nouvelle réf avec prix, ou prix différent du prix actuel.
+  INSERT INTO stock_prix (ref, prix_ht, source)
+  SELECT i.ref, i.prix_ht, coalesce(p_source, '')
+    FROM _import i LEFT JOIN stock_articles a ON a.ref = i.ref
+   WHERE (a.ref IS NULL AND i.prix_ht IS NOT NULL)
+      OR (a.ref IS NOT NULL AND nullif(a.prix_ht, 0) IS DISTINCT FROM i.prix_ht)
+   ORDER BY i.n;
+  GET DIAGNOSTICS v_prix = ROW_COUNT;
 
   SELECT count(*) INTO v_inchange FROM _import i JOIN stock_articles a USING (ref)
    WHERE a.actif AND (a.description, a.famille, a.fournisseur, a.ref_fourn) = (i.description, i.famille, i.fournisseur, i.ref_fourn)
@@ -447,8 +459,19 @@ BEGIN
    WHERE a.actif AND NOT EXISTS (SELECT 1 FROM _import i WHERE i.ref = a.ref);
   GET DIAGNOSTICS v_desact = ROW_COUNT;
 
+  -- Ordre du catalogue = ordre du fichier (numéros au-dessus des anciens, puis compteur recalé).
+  UPDATE stock_articles a SET ordre = o.base + i.rang
+    FROM (SELECT ref, row_number() OVER (ORDER BY n) AS rang FROM _import) i,
+         (SELECT max(ordre) AS base FROM stock_articles) o
+   WHERE a.ref = i.ref;
+  PERFORM setval(pg_get_serial_sequence('public.stock_articles', 'ordre'), (SELECT max(ordre) FROM stock_articles));
+
+  SELECT coalesce(jsonb_agg(d->>'ref'), '[]'::jsonb) INTO v_retirees
+    FROM jsonb_array_elements(stock_catalogue()->'data') d WHERE (d->>'retiree')::boolean;
+
   RETURN jsonb_build_object('ok', true, 'added', v_ajout, 'updated', v_maj, 'deactivated', v_desact,
-                            'unchanged', v_inchange, 'total', jsonb_array_length(p_refs));
+                            'unchanged', v_inchange, 'total', jsonb_array_length(p_refs),
+                            'prixModifies', v_prix, 'retireesEnStock', v_retirees);
 END;
 $function$;
 
@@ -501,6 +524,17 @@ AS $function$
     FROM stock_mouvements m WHERE m.ref = btrim(p_ref);
 $function$;
 
+CREATE OR REPLACE FUNCTION public.stock_prix_ref(p_ref text)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('prixHT', p.prix_ht, 'dateEffet', p.date_effet, 'source', p.source)
+                            ORDER BY p.date_effet DESC, p.id DESC), '[]'::jsonb)
+    FROM stock_prix p WHERE p.ref = btrim(p_ref);
+$function$;
+
 CREATE OR REPLACE FUNCTION public.stock_reprise(p jsonb, p_remplacer boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -509,7 +543,7 @@ CREATE OR REPLACE FUNCTION public.stock_reprise(p jsonb, p_remplacer boolean DEF
 AS $function$
 BEGIN
   IF p_remplacer THEN
-    TRUNCATE stock_articles, stock_mouvements, stock_mouvements_supprimes, stock_favoris, stock_lv_liens RESTART IDENTITY;
+    TRUNCATE stock_articles, stock_mouvements, stock_mouvements_supprimes, stock_favoris, stock_lv_liens, stock_prix RESTART IDENTITY;
   ELSIF EXISTS (SELECT 1 FROM stock_articles) OR EXISTS (SELECT 1 FROM stock_mouvements) THEN
     RAISE EXCEPTION 'Tables stock non vides : reprise refusée';
   END IF;
@@ -521,6 +555,10 @@ BEGIN
          (a->>'dateImport')::date, (a->>'dateModif')::date
     FROM jsonb_array_elements(p->'articles') WITH ORDINALITY AS t(a, n)
    ORDER BY n;
+
+  INSERT INTO stock_prix (ref, prix_ht, date_effet, source)
+  SELECT ref, prix_ht, coalesce(date_modif, date_import, current_date), 'reprise classeur'
+    FROM stock_articles WHERE prix_ht IS NOT NULL ORDER BY ordre;
 
   INSERT INTO stock_mouvements (date, ref, type, quantite, utilisateur, note)
   SELECT (m->>'date')::timestamptz, btrim(m->>'ref'), m->>'type', _stock_nombre(m->'qty'),
