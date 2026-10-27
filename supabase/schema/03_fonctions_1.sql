@@ -360,6 +360,59 @@ AS $function$
   );
 $function$;
 
+CREATE OR REPLACE FUNCTION public._stock_etat()
+ RETURNS TABLE(ref text, inv_qty numeric, delta numeric, derniere_date timestamp with time zone)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH inv AS (
+    SELECT DISTINCT ON (m.ref) m.ref, m.date, m.id, m.quantite
+      FROM stock_mouvements m WHERE m.type = 'inventaire'
+     ORDER BY m.ref, m.date DESC, m.id DESC
+  )
+  SELECT m.ref,
+         max(inv.quantite),
+         coalesce(sum(CASE WHEN inv.ref IS NULL OR (m.date, m.id) > (inv.date, inv.id)
+                           THEN CASE m.type WHEN 'entrée' THEN m.quantite WHEN 'sortie' THEN -m.quantite ELSE 0 END
+                           ELSE 0 END), 0),
+         max(m.date)
+    FROM stock_mouvements m LEFT JOIN inv ON inv.ref = m.ref
+   GROUP BY m.ref;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._stock_iso(d timestamp with time zone)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT to_char(d AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+$function$;
+
+CREATE OR REPLACE FUNCTION public._stock_mouvement_json(m stock_mouvements)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object('date', _stock_iso(m.date), 'ref', m.ref, 'type', m.type,
+                            'qty', m.quantite, 'user', m.utilisateur, 'note', m.note);
+$function$;
+
+CREATE OR REPLACE FUNCTION public._stock_nombre(v jsonb)
+ RETURNS numeric
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT CASE
+    WHEN jsonb_typeof(v) = 'number' THEN (v #>> '{}')::numeric
+    WHEN jsonb_typeof(v) = 'string' AND btrim(v #>> '{}') ~ '^-?[0-9]+(\.[0-9]+)?$' THEN btrim(v #>> '{}')::numeric
+    WHEN jsonb_typeof(v) = 'string' AND btrim(v #>> '{}') = '' THEN 0
+    ELSE 0 END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._sync_heures_journalieres()
  RETURNS trigger
  LANGUAGE plpgsql

@@ -70,6 +70,8 @@ CREATE INDEX remunerations_contrat_idx ON public.remunerations USING btree (cont
 CREATE INDEX remunerations_employe_idx ON public.remunerations USING btree (employe_id);
 CREATE INDEX rh_journal_at_idx ON public.rh_journal USING btree (at DESC);
 CREATE INDEX rh_journal_emp_idx ON public.rh_journal USING btree (employe_id, at DESC);
+CREATE INDEX stock_mouvements_date ON public.stock_mouvements USING btree (date DESC, id DESC);
+CREATE INDEX stock_mouvements_ref_date ON public.stock_mouvements USING btree (ref, date, id);
 CREATE INDEX idx_voyages_date_creation ON public.voyages USING btree (date_creation DESC);
 CREATE INDEX idx_voyages_parti ON public.voyages USING btree (parti);
 

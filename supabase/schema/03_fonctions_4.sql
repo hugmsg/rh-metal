@@ -244,6 +244,339 @@ begin
 end;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.stock_ajouter(p_type text, p_user text, p_note text, p_items jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_type text := btrim(coalesce(p_type, ''));
+  v_note text := btrim(coalesce(p_note, ''));
+  v_date timestamptz := now();
+  v_op   uuid := gen_random_uuid();
+  v_n    integer;
+BEGIN
+  IF v_type NOT IN ('entrée', 'sortie', 'inventaire') THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Type invalide : ' || v_type);
+  END IF;
+  IF jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Aucun article dans le batch');
+  END IF;
+
+  WITH lignes AS (
+    SELECT btrim(coalesce(i->>'ref', '')) AS ref, _stock_nombre(i->'qty') AS qty,
+           v_note || CASE WHEN coalesce(i->>'note', '') <> ''
+                          THEN CASE WHEN v_note <> '' THEN ' · ' ELSE '' END || (i->>'note') ELSE '' END AS note,
+           n
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(i, n)
+  ), ok AS (
+    INSERT INTO stock_mouvements (date, ref, type, quantite, utilisateur, note, operation)
+    SELECT v_date, l.ref, v_type, l.qty, btrim(coalesce(p_user, '')), l.note, v_op
+      FROM lignes l
+     WHERE l.ref <> '' AND CASE WHEN v_type = 'inventaire' THEN l.qty >= 0 ELSE l.qty > 0 END
+     ORDER BY l.n
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_n FROM ok;
+
+  IF v_n = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Aucun mouvement valide');
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'count', v_n, 'type', v_type, 'date', _stock_iso(v_date));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_analytique()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH s AS (
+    SELECT m.ref,
+      coalesce(sum(m.quantite) FILTER (WHERE m.type = 'sortie' AND m.date >= now() - interval '30 days'), 0) AS s30,
+      coalesce(sum(m.quantite) FILTER (WHERE m.type = 'entrée' AND m.date >= now() - interval '30 days'), 0) AS e30,
+      coalesce(sum(m.quantite) FILTER (WHERE m.type = 'sortie' AND m.date >= now() - interval '14 days'), 0) AS p1,
+      coalesce(sum(m.quantite) FILTER (WHERE m.type = 'sortie' AND m.date >= now() - interval '28 days'
+                                         AND m.date < now() - interval '14 days'), 0) AS p2,
+      max(m.date) AS derniere
+    FROM stock_mouvements m WHERE m.quantite <> 0
+    GROUP BY m.ref
+  )
+  SELECT coalesce(jsonb_object_agg(s.ref, jsonb_build_object(
+    'avgPerWeek', CASE WHEN s.s30 > 0 THEN trim_scale(round(s.s30 / 30 * 7, 1)) ELSE 0 END,
+    'trend', CASE WHEN s.p2 = 0 AND s.p1 > 0 THEN 'up'
+                  WHEN s.p1 = 0 AND s.p2 > 0 THEN 'down'
+                  WHEN s.p2 > 0 AND s.p1 / s.p2 >= 1.3 THEN 'up'
+                  WHEN s.p2 > 0 AND s.p1 / s.p2 <= 0.7 THEN 'down'
+                  ELSE 'stable' END,
+    'exits30d', s.s30, 'entries30d', s.e30, 'lastDate', _stock_iso(s.derniere))), '{}'::jsonb)
+  FROM s;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_articles_actifs()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+    'refs', coalesce((SELECT jsonb_object_agg(a.ref, jsonb_build_object('description', a.description,
+              'famille', a.famille, 'fournisseur', a.fournisseur, 'refFourn', a.ref_fourn))
+              FROM stock_articles a WHERE a.actif), '{}'::jsonb),
+    'total', (SELECT count(*) FROM stock_articles));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_catalogue()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH lignes AS (
+    SELECT a.*, CASE WHEN e.ref IS NULL THEN NULL
+                     WHEN e.inv_qty IS NOT NULL THEN e.inv_qty + e.delta
+                     ELSE e.delta END AS qte
+      FROM stock_articles a LEFT JOIN _stock_etat() e ON e.ref = a.ref
+     WHERE a.actif
+  )
+  SELECT jsonb_build_object(
+    'data', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'ref', l.ref, 'description', l.description, 'famille', l.famille,
+        'fournisseur', l.fournisseur, 'refFourn', l.ref_fourn,
+        'prixHT', nullif(l.prix_ht, 0), 'qte', l.qte, 'seuil', l.seuil,
+        'stockStatus', CASE WHEN l.qte IS NOT NULL AND l.seuil IS NOT NULL
+                            THEN CASE WHEN l.qte >= l.seuil THEN 'ok' ELSE 'low' END
+                            WHEN l.qte IS NOT NULL THEN 'ok' ELSE 'unknown' END)
+        ORDER BY l.ordre) FROM lignes l), '[]'::jsonb),
+    'count', (SELECT count(*) FROM lignes),
+    'familles', coalesce((SELECT jsonb_agg(f ORDER BY f COLLATE "C")
+                            FROM (SELECT DISTINCT famille AS f FROM lignes WHERE famille <> '') x), '[]'::jsonb));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_definir_favoris(p_refs jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  DELETE FROM stock_favoris;
+  INSERT INTO stock_favoris (ref)
+  SELECT r FROM (SELECT DISTINCT ON (btrim(x)) btrim(x) AS r, n
+                   FROM jsonb_array_elements_text(coalesce(p_refs, '[]'::jsonb)) WITH ORDINALITY AS t(x, n)
+                  WHERE btrim(x) <> '' ORDER BY btrim(x), n) y
+   ORDER BY n;
+  RETURN jsonb_build_object('ok', true, 'count', jsonb_array_length(coalesce(p_refs, '[]'::jsonb)));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_definir_seuil(p_ref text, p_seuil numeric)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_seuil < 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Seuil invalide');
+  END IF;
+  UPDATE stock_articles SET seuil = p_seuil, date_modif = current_date WHERE ref = btrim(coalesce(p_ref, ''));
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Référence introuvable : ' || btrim(coalesce(p_ref, '')));
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'ref', btrim(p_ref), 'seuil', p_seuil);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_favoris_liste()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(f.ref ORDER BY f.ordre), '[]'::jsonb) FROM stock_favoris f;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_importer_catalogue(p_refs jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_ajout integer; v_maj integer; v_desact integer; v_inchange integer;
+BEGIN
+  IF jsonb_typeof(p_refs) <> 'array' OR jsonb_array_length(p_refs) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Aucune référence reçue');
+  END IF;
+
+  DROP TABLE IF EXISTS _import;
+  CREATE TEMP TABLE _import ON COMMIT DROP AS
+  SELECT DISTINCT ON (ref) ref, description, famille, fournisseur, ref_fourn, prix_ht, n FROM (
+    SELECT btrim(coalesce(r->>'ref', '')) AS ref,
+           btrim(coalesce(r->>'description', '')) AS description,
+           btrim(coalesce(r->>'famille', '')) AS famille,
+           btrim(coalesce(r->>'fournisseur', '')) AS fournisseur,
+           btrim(coalesce(r->>'refFourn', '')) AS ref_fourn,
+           nullif(_stock_nombre(r->'prixHT'), 0) AS prix_ht, n
+      FROM jsonb_array_elements(p_refs) WITH ORDINALITY AS t(r, n)) x
+   WHERE ref <> ''
+   ORDER BY ref, n DESC;
+
+  SELECT count(*) INTO v_inchange FROM _import i JOIN stock_articles a USING (ref)
+   WHERE a.actif AND (a.description, a.famille, a.fournisseur, a.ref_fourn) = (i.description, i.famille, i.fournisseur, i.ref_fourn)
+     AND nullif(a.prix_ht, 0) IS NOT DISTINCT FROM i.prix_ht;
+
+  UPDATE stock_articles a SET description = i.description, famille = i.famille, fournisseur = i.fournisseur,
+         ref_fourn = i.ref_fourn, prix_ht = i.prix_ht, actif = true, date_modif = current_date
+    FROM _import i
+   WHERE a.ref = i.ref
+     AND (NOT a.actif OR (a.description, a.famille, a.fournisseur, a.ref_fourn) IS DISTINCT FROM (i.description, i.famille, i.fournisseur, i.ref_fourn)
+          OR nullif(a.prix_ht, 0) IS DISTINCT FROM i.prix_ht);
+  GET DIAGNOSTICS v_maj = ROW_COUNT;
+
+  INSERT INTO stock_articles (ref, description, famille, fournisseur, ref_fourn, prix_ht, date_import, date_modif)
+  SELECT i.ref, i.description, i.famille, i.fournisseur, i.ref_fourn, i.prix_ht, current_date, current_date
+    FROM _import i WHERE NOT EXISTS (SELECT 1 FROM stock_articles a WHERE a.ref = i.ref)
+   ORDER BY i.n;
+  GET DIAGNOSTICS v_ajout = ROW_COUNT;
+
+  UPDATE stock_articles a SET actif = false
+   WHERE a.actif AND NOT EXISTS (SELECT 1 FROM _import i WHERE i.ref = a.ref);
+  GET DIAGNOSTICS v_desact = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true, 'added', v_ajout, 'updated', v_maj, 'deactivated', v_desact,
+                            'unchanged', v_inchange, 'total', jsonb_array_length(p_refs));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_lier_lv(p_op_key text, p_numero text, p_display text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF coalesce(p_op_key, '') = '' OR coalesce(p_numero, '') = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'opKey ou numero manquant');
+  END IF;
+  INSERT INTO stock_lv_liens (op_key, numero, display, date)
+  VALUES (p_op_key, p_numero, coalesce(nullif(p_display, ''), p_numero), now())
+  ON CONFLICT (op_key) DO UPDATE SET numero = excluded.numero, display = excluded.display, date = excluded.date;
+  RETURN jsonb_build_object('ok', true);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_lv_liens_liste()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_object_agg(l.op_key, jsonb_build_object(
+           'numero', l.numero, 'display', l.display, 'date', _stock_iso(l.date))), '{}'::jsonb)
+    FROM stock_lv_liens l;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_mouvements_recents(p_limit integer)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(_stock_mouvement_json(m) ORDER BY m.date DESC, m.id DESC), '[]'::jsonb)
+    FROM (SELECT * FROM stock_mouvements ORDER BY date DESC, id DESC
+           LIMIT greatest(coalesce(p_limit, 50), 0)) m;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_mouvements_ref(p_ref text)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(_stock_mouvement_json(m) ORDER BY m.date, m.id), '[]'::jsonb)
+    FROM stock_mouvements m WHERE m.ref = btrim(p_ref);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_reprise(p jsonb, p_remplacer boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_remplacer THEN
+    TRUNCATE stock_articles, stock_mouvements, stock_mouvements_supprimes, stock_favoris, stock_lv_liens RESTART IDENTITY;
+  ELSIF EXISTS (SELECT 1 FROM stock_articles) OR EXISTS (SELECT 1 FROM stock_mouvements) THEN
+    RAISE EXCEPTION 'Tables stock non vides : reprise refusée';
+  END IF;
+
+  INSERT INTO stock_articles (ref, description, famille, fournisseur, ref_fourn, prix_ht, seuil, actif, date_import, date_modif)
+  SELECT btrim(a->>'ref'), coalesce(btrim(a->>'description'), ''), coalesce(btrim(a->>'famille'), ''),
+         coalesce(btrim(a->>'fournisseur'), ''), coalesce(btrim(a->>'refFourn'), ''),
+         nullif(_stock_nombre(a->'prixHT'), 0), (a->>'seuil')::numeric, coalesce((a->>'actif')::boolean, true),
+         (a->>'dateImport')::date, (a->>'dateModif')::date
+    FROM jsonb_array_elements(p->'articles') WITH ORDINALITY AS t(a, n)
+   ORDER BY n;
+
+  INSERT INTO stock_mouvements (date, ref, type, quantite, utilisateur, note)
+  SELECT (m->>'date')::timestamptz, btrim(m->>'ref'), m->>'type', _stock_nombre(m->'qty'),
+         coalesce(m->>'user', ''), coalesce(m->>'note', '')
+    FROM jsonb_array_elements(p->'mouvements') WITH ORDINALITY AS t(m, n)
+   ORDER BY n;
+
+  PERFORM stock_definir_favoris(coalesce(p->'favoris', '[]'::jsonb));
+
+  INSERT INTO stock_lv_liens (op_key, numero, display, date)
+  SELECT k, v->>'numero', coalesce(v->>'display', v->>'numero'), coalesce((v->>'date')::timestamptz, now())
+    FROM jsonb_each(coalesce(p->'liens', '{}'::jsonb)) AS t(k, v);
+
+  RETURN jsonb_build_object('articles', (SELECT count(*) FROM stock_articles),
+                            'mouvements', (SELECT count(*) FROM stock_mouvements),
+                            'favoris', (SELECT count(*) FROM stock_favoris),
+                            'liens', (SELECT count(*) FROM stock_lv_liens));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_resume()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_object_agg(e.ref, jsonb_build_object(
+           'delta', e.delta, 'invQty', e.inv_qty, 'lastDate', _stock_iso(e.derniere_date))), '{}'::jsonb)
+    FROM _stock_etat() e;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_supprimer_mouvement(p_ref text, p_type text, p_qty numeric, p_note text, p_date timestamp with time zone, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  m stock_mouvements;
+BEGIN
+  SELECT * INTO m FROM stock_mouvements
+   WHERE ref = btrim(coalesce(p_ref, '')) AND type = btrim(coalesce(p_type, ''))
+     AND note = btrim(coalesce(p_note, '')) AND abs(quantite - p_qty) < 0.001
+     AND abs(extract(epoch FROM date - p_date)) < 2
+   ORDER BY id LIMIT 1
+   FOR UPDATE;
+  IF m.id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Mouvement non trouvé');
+  END IF;
+  INSERT INTO stock_mouvements_supprimes (mouvement, supprime_par)
+  VALUES (to_jsonb(m), btrim(coalesce(p_par, '')));
+  DELETE FROM stock_mouvements WHERE id = m.id;
+  RETURN jsonb_build_object('ok', true, 'ref', m.ref, 'qty', m.quantite);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.supprimer_conge_rh(p_id uuid, p_motif text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
