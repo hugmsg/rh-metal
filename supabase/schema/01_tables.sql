@@ -12,11 +12,8 @@ CREATE TABLE public.comptes_pwa (
   role text DEFAULT 'utilisateur'::text NOT NULL,
   activites text[] DEFAULT ARRAY['loxam'::text] NOT NULL,
   actif boolean DEFAULT true NOT NULL,
-  pin_migre boolean DEFAULT false NOT NULL,
-  ancien_uid text,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT comptes_pwa_ancien_uid_key UNIQUE (ancien_uid),
   CONSTRAINT comptes_pwa_employe_id_key UNIQUE (employe_id),
   CONSTRAINT comptes_pwa_pkey PRIMARY KEY (id),
   CONSTRAINT comptes_pwa_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'utilisateur'::text])))

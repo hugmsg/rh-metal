@@ -18,7 +18,7 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'message', 'Ce PIN est déjà utilisé par un collègue : choisissez-en un autre.');
   END IF;
   UPDATE employes SET pin_hash = crypt(p_pin, gen_salt('bf', 12)), updated_at = now() WHERE id = v_employe;
-  UPDATE comptes_pwa SET pin_migre = true, updated_at = now() WHERE id = p_compte;
+  UPDATE comptes_pwa SET updated_at = now() WHERE id = p_compte;
   RETURN jsonb_build_object('ok', true);
 END;
 $function$;

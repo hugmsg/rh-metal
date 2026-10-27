@@ -374,8 +374,8 @@ BEGIN
   END IF;
 
   UPDATE employes SET pin_hash = crypt(p_pin, gen_salt('bf', 12)), updated_at = now() WHERE id = e.id;
-  INSERT INTO comptes_pwa (employe_id, role, activites, pin_migre)
-  VALUES (e.id, p_role, p_activites, true)
+  INSERT INTO comptes_pwa (employe_id, role, activites)
+  VALUES (e.id, p_role, p_activites)
   RETURNING id INTO v_id;
   RETURN jsonb_build_object('ok', true, 'id', v_id, 'employeId', e.id);
 END;
@@ -479,7 +479,7 @@ BEGIN
     v_res := v_res || jsonb_build_object(
       'id', r.id, 'prenom', r.prenom, 'nom', r.nom, 'role', r.role, 'actif', r.actif,
       'activites', to_jsonb(r.activites), 'employeId', r.employe_id, 'aFicheRh', r.a_fiche_rh,
-      'present', r.present, 'externe', r.acces_externe, 'hasPIN', r.a_pin OR NOT r.pin_migre,
+      'present', r.present, 'externe', r.acces_externe, 'hasPIN', r.a_pin,
       'bloqueJusqua', b.bloque_jusqua, 'echecsJour', b.echecs_jour);
   END LOOP;
   RETURN v_res;
