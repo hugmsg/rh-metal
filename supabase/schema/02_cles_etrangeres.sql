@@ -7,6 +7,7 @@ ALTER TABLE public.cp_ajustements ADD CONSTRAINT cp_ajustements_employe_id_fkey 
 ALTER TABLE public.heures_corrections ADD CONSTRAINT heures_corrections_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
 ALTER TABLE public.heures_journalieres ADD CONSTRAINT heures_journalieres_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
 ALTER TABLE public.jours_statut ADD CONSTRAINT jours_statut_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
+ALTER TABLE public.ot_forfait_pieces ADD CONSTRAINT ot_forfait_pieces_lettre_fkey FOREIGN KEY (lettre) REFERENCES ot_forfaits(lettre) ON UPDATE CASCADE ON DELETE CASCADE;
 ALTER TABLE public.pointages ADD CONSTRAINT pointages_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id);
 ALTER TABLE public.remunerations ADD CONSTRAINT remunerations_contrat_id_fkey FOREIGN KEY (contrat_id) REFERENCES contrats(id) ON DELETE CASCADE;
 ALTER TABLE public.remunerations ADD CONSTRAINT remunerations_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;

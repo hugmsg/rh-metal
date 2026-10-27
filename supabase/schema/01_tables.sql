@@ -188,6 +188,56 @@ CREATE TABLE public.mois_clotures (
 );
 ALTER TABLE public.mois_clotures ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE public.ot_forfait_pieces (
+  lettre text NOT NULL,
+  ref text NOT NULL,
+  qte numeric NOT NULL,
+  CONSTRAINT ot_forfait_pieces_pkey PRIMARY KEY (lettre, ref),
+  CONSTRAINT ot_forfait_pieces_qte_check CHECK ((qte > (0)::numeric)),
+  CONSTRAINT ot_forfait_pieces_ref_check CHECK ((btrim(ref) <> ''::text))
+);
+ALTER TABLE public.ot_forfait_pieces ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE public.ot_forfaits (
+  lettre text NOT NULL,
+  intitule text NOT NULL,
+  mo numeric DEFAULT 0 NOT NULL,
+  prix_piece numeric DEFAULT 0 NOT NULL,
+  modifie_le timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT ot_forfaits_lettre_check CHECK ((btrim(lettre) <> ''::text)),
+  CONSTRAINT ot_forfaits_pkey PRIMARY KEY (lettre)
+);
+ALTER TABLE public.ot_forfaits ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE public.ot_parametres (
+  cle text NOT NULL,
+  valeur numeric NOT NULL,
+  libelle text DEFAULT ''::text NOT NULL,
+  CONSTRAINT ot_parametres_cle_check CHECK ((btrim(cle) <> ''::text)),
+  CONSTRAINT ot_parametres_pkey PRIMARY KEY (cle)
+);
+ALTER TABLE public.ot_parametres ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE public.ot_references (
+  ref text NOT NULL,
+  description text DEFAULT ''::text NOT NULL,
+  categorie text DEFAULT ''::text NOT NULL,
+  prix_achat numeric,
+  op_code text,
+  op_libelle text,
+  mo numeric,
+  mo_base numeric,
+  temps_min numeric,
+  unite text DEFAULT 'unité'::text NOT NULL,
+  prix_piece numeric,
+  qte_defaut numeric,
+  ref_fabricant text,
+  modifie_le timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT ot_references_pkey PRIMARY KEY (ref),
+  CONSTRAINT ot_references_ref_check CHECK ((btrim(ref) <> ''::text))
+);
+ALTER TABLE public.ot_references ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE public.pin_essais (
   id bigint DEFAULT nextval('pin_essais_id_seq'::regclass) NOT NULL,
   at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
