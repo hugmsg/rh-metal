@@ -362,7 +362,7 @@ CREATE OR REPLACE FUNCTION public.stock_definir_favoris(p_refs jsonb)
  SET search_path TO 'public'
 AS $function$
 BEGIN
-  DELETE FROM stock_favoris;
+  DELETE FROM stock_favoris WHERE true;
   INSERT INTO stock_favoris (ref)
   SELECT r FROM (SELECT DISTINCT ON (btrim(x)) btrim(x) AS r, n
                    FROM jsonb_array_elements_text(coalesce(p_refs, '[]'::jsonb)) WITH ORDINALITY AS t(x, n)
