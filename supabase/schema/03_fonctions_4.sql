@@ -283,7 +283,9 @@ BEGIN
   IF v_n = 0 THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Aucun mouvement valide');
   END IF;
-  RETURN jsonb_build_object('ok', true, 'count', v_n, 'type', v_type, 'date', _stock_iso(v_date));
+  RETURN jsonb_build_object('ok', true, 'count', v_n, 'type', v_type, 'date', _stock_iso(v_date),
+    'mouvements', (SELECT jsonb_agg(_stock_mouvement_json(m) ORDER BY m.id)
+                     FROM stock_mouvements m WHERE m.operation = v_op));
 END;
 $function$;
 
@@ -313,6 +315,35 @@ AS $function$
                   ELSE 'stable' END,
     'exits30d', s.s30, 'entries30d', s.e30, 'lastDate', _stock_iso(s.derniere))), '{}'::jsonb)
   FROM s;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_annuler_operation(p_ids bigint[], p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_supprimes jsonb;
+BEGIN
+  IF coalesce(array_length(p_ids, 1), 0) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Aucun mouvement à annuler');
+  END IF;
+  IF (SELECT count(*) FROM stock_mouvements WHERE id = ANY (p_ids)) <> (SELECT count(DISTINCT x) FROM unnest(p_ids) x) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Opération déjà annulée ou modifiée : rechargez l''historique');
+  END IF;
+  WITH sup AS (
+    DELETE FROM stock_mouvements WHERE id = ANY (p_ids) RETURNING *
+  ), trace AS (
+    INSERT INTO stock_mouvements_supprimes (mouvement, supprime_par)
+    SELECT to_jsonb(s), btrim(coalesce(p_par, '')) FROM sup s ORDER BY s.id
+    RETURNING mouvement
+  )
+  SELECT jsonb_agg(jsonb_build_object('id', (t.mouvement->>'id')::bigint, 'ref', t.mouvement->>'ref',
+                                      'type', t.mouvement->>'type', 'qty', (t.mouvement->>'quantite')::numeric))
+    INTO v_supprimes FROM trace t;
+  RETURN jsonb_build_object('ok', true, 'count', jsonb_array_length(v_supprimes), 'supprimes', v_supprimes);
+END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.stock_articles_actifs()

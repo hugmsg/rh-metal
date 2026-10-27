@@ -396,7 +396,7 @@ CREATE OR REPLACE FUNCTION public._stock_mouvement_json(m stock_mouvements)
  STABLE
  SET search_path TO 'public'
 AS $function$
-  SELECT jsonb_build_object('date', _stock_iso(m.date), 'ref', m.ref, 'type', m.type,
+  SELECT jsonb_build_object('id', m.id, 'date', _stock_iso(m.date), 'ref', m.ref, 'type', m.type,
                             'qty', m.quantite, 'user', m.utilisateur, 'note', m.note);
 $function$;
 
