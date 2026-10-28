@@ -287,6 +287,22 @@ AS $function$
   SELECT valeur FROM ot_parametres WHERE cle = p_cle;
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_photo_tarifs(p_par text, p_motif text)
+ RETURNS bigint
+ LANGUAGE sql
+ SET search_path TO 'public'
+AS $function$
+  INSERT INTO ot_tarifs_photos (par, motif, taux_horaire, taux_base, refs, forfaits)
+  SELECT btrim(coalesce(p_par, '')), btrim(coalesce(p_motif, '')),
+         _ot_parametre('taux_horaire'), _ot_parametre('taux_base'),
+         coalesce((SELECT jsonb_agg(jsonb_build_object('ref', r.ref, 'description', r.description, 'mode', r.mode,
+                     'temps_min', r.temps_min, 'mo_base', r.mo_base, 'mo', r.mo, 'prix_piece', r.prix_piece,
+                     'mo_plafond', r.mo_plafond) ORDER BY r.ref) FROM ot_references r), '[]'::jsonb),
+         coalesce((SELECT jsonb_agg(jsonb_build_object('lettre', f.lettre, 'intitule', f.intitule, 'mo_base', f.mo_base,
+                     'mo', f.mo, 'prix_piece', f.prix_piece) ORDER BY f.lettre) FROM ot_forfaits f), '[]'::jsonb)
+  RETURNING id;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_recalculer_tarifs()
  RETURNS integer
  LANGUAGE plpgsql

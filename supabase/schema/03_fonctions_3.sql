@@ -413,6 +413,7 @@ DECLARE
   v_avant jsonb;
   v_apres jsonb;
   v_n     integer := 0;
+  v_photo bigint;
 BEGIN
   IF v_cle = '' THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Clé manquante');
@@ -482,12 +483,16 @@ BEGIN
     IF jsonb_typeof(v->'valeur') <> 'number' OR (v->>'valeur')::numeric <= 0 THEN
       RETURN jsonb_build_object('ok', false, 'message', 'Valeur invalide');
     END IF;
+    IF v_cle IN ('taux_horaire', 'taux_base') THEN
+      v_photo := _ot_photo_tarifs(p_par, 'Avant le passage du ' || CASE v_cle WHEN 'taux_horaire' THEN 'taux horaire' ELSE 'taux de base' END
+                 || ' de ' || (v_avant->>'valeur') || ' à ' || (v->>'valeur') || ' €/h');
+    END IF;
     UPDATE ot_parametres SET valeur = (v->>'valeur')::numeric WHERE cle = v_cle;
     IF v_cle IN ('taux_horaire', 'taux_base') THEN
       v_n := _ot_recalculer_tarifs();
     END IF;
     SELECT to_jsonb(p) INTO v_apres FROM ot_parametres p WHERE p.cle = v_cle;
-    v_apres := v_apres || jsonb_build_object('tarifs_recalcules', v_n);
+    v_apres := v_apres || jsonb_build_object('tarifs_recalcules', v_n, 'photo', v_photo);
   ELSE
     RETURN jsonb_build_object('ok', false, 'message', 'Type inconnu : ' || coalesce(p_type, '?'));
   END IF;
@@ -529,6 +534,30 @@ AS $function$
                                                'cle', j.cle, 'avant', j.avant, 'apres', j.apres)
                             ORDER BY j.le DESC, j.id DESC), '[]'::jsonb)
     FROM (SELECT * FROM ot_tarifs_journal ORDER BY le DESC, id DESC LIMIT greatest(coalesce(p_limit, 200), 1)) j;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tarifs_photo(p_id bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce((SELECT jsonb_build_object('id', id, 'le', _stock_iso(le), 'par', par, 'motif', motif,
+           'taux_horaire', taux_horaire, 'taux_base', taux_base, 'references', refs, 'forfaits', forfaits)
+           FROM ot_tarifs_photos WHERE id = p_id),
+         jsonb_build_object('ok', false, 'message', 'Photo introuvable'));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tarifs_photos_liste()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id', id, 'le', _stock_iso(le), 'par', par, 'motif', motif,
+           'taux_horaire', taux_horaire, 'nb_refs', jsonb_array_length(refs), 'nb_forfaits', jsonb_array_length(forfaits))
+           ORDER BY le DESC, id DESC), '[]'::jsonb)
+    FROM ot_tarifs_photos;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.ot_taux_apercu(p_taux numeric)
