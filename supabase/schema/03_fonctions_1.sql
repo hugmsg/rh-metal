@@ -208,6 +208,15 @@ CREATE OR REPLACE FUNCTION public._lundi(p_date date)
  IMMUTABLE
 AS $function$ SELECT p_date - ((extract(dow from p_date)::int + 6) % 7); $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_arrondi_sup(x numeric)
+ RETURNS numeric
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT round(ceil(x * 2 - 0.000001) / 2, 2);
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_fiche_json(p_id bigint)
  RETURNS jsonb
  LANGUAGE sql
@@ -255,6 +264,20 @@ AS $function$
    ORDER BY t.ordre, t.id;
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_mo_calculee(p_mode text, p_temps numeric, p_base numeric, p_taux numeric, p_taux_base numeric)
+ RETURNS numeric
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT CASE p_mode
+    WHEN 'temps'  THEN _ot_arrondi_sup(ceil(p_temps * p_taux_base / 60) * p_taux / p_taux_base)
+    WHEN 'base'   THEN _ot_arrondi_sup(p_base * p_taux / p_taux_base)
+    WHEN 'heure'  THEN p_taux
+    WHEN 'minute' THEN round(p_taux / 60, 4)
+  END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_parametre(p_cle text)
  RETURNS numeric
  LANGUAGE sql
@@ -262,6 +285,30 @@ CREATE OR REPLACE FUNCTION public._ot_parametre(p_cle text)
  SET search_path TO 'public'
 AS $function$
   SELECT valeur FROM ot_parametres WHERE cle = p_cle;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_recalculer_tarifs()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_t  numeric := _ot_parametre('taux_horaire');
+  v_tb numeric := _ot_parametre('taux_base');
+  v_n1 integer;
+  v_n2 integer;
+BEGIN
+  UPDATE ot_references r SET mo = c.mo, mo_base = CASE WHEN r.mode = 'temps' THEN ceil(r.temps_min * v_tb / 60) ELSE r.mo_base END,
+         modifie_le = now()
+    FROM (SELECT ref, _ot_mo_calculee(mode, temps_min, mo_base, v_t, v_tb) AS mo FROM ot_references
+           WHERE mode IN ('temps', 'base', 'heure', 'minute')) c
+   WHERE r.ref = c.ref AND r.mo IS DISTINCT FROM c.mo;
+  GET DIAGNOSTICS v_n1 = ROW_COUNT;
+  UPDATE ot_forfaits SET mo = _ot_arrondi_sup(mo_base * v_t / v_tb), modifie_le = now()
+   WHERE mo_base IS NOT NULL AND mo IS DISTINCT FROM _ot_arrondi_sup(mo_base * v_t / v_tb);
+  GET DIAGNOSTICS v_n2 = ROW_COUNT;
+  RETURN v_n1 + v_n2;
+END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public._ot_totaux(p_fiche bigint)

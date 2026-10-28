@@ -412,15 +412,20 @@ DECLARE
   v       jsonb := coalesce(p_valeurs, '{}'::jsonb);
   v_avant jsonb;
   v_apres jsonb;
+  v_n     integer := 0;
 BEGIN
   IF v_cle = '' THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Clé manquante');
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_each(v) e
-              WHERE e.key IN ('mo', 'prix_piece', 'mo_plafond', 'valeur')
+              WHERE e.key IN ('mo', 'mo_base', 'temps_min', 'prix_piece', 'mo_plafond', 'valeur')
                 AND (jsonb_typeof(e.value) NOT IN ('number', 'null')
                      OR (jsonb_typeof(e.value) = 'number' AND (e.value #>> '{}')::numeric < 0))) THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Montant invalide');
+  END IF;
+  IF v ? 'mode' AND jsonb_typeof(v->'mode') <> 'null'
+     AND v->>'mode' NOT IN ('temps', 'base', 'heure', 'minute', 'impose') THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Mode inconnu');
   END IF;
 
   IF p_type = 'reference' THEN
@@ -432,10 +437,26 @@ BEGIN
       description = CASE WHEN v ? 'description' THEN btrim(coalesce(v->>'description', '')) ELSE description END,
       categorie   = CASE WHEN v ? 'categorie' THEN btrim(coalesce(v->>'categorie', '')) ELSE categorie END,
       unite       = CASE WHEN v ? 'unite' THEN coalesce(nullif(btrim(v->>'unite'), ''), 'unité') ELSE unite END,
+      mode        = CASE WHEN v ? 'mode' THEN v->>'mode' ELSE mode END,
+      temps_min   = CASE WHEN v ? 'temps_min' THEN (v->>'temps_min')::numeric ELSE temps_min END,
+      mo_base     = CASE WHEN v ? 'mo_base' THEN (v->>'mo_base')::numeric ELSE mo_base END,
       mo          = CASE WHEN v ? 'mo' THEN (v->>'mo')::numeric ELSE mo END,
       prix_piece  = CASE WHEN v ? 'prix_piece' THEN (v->>'prix_piece')::numeric ELSE prix_piece END,
       mo_plafond  = CASE WHEN v ? 'mo_plafond' THEN (v->>'mo_plafond')::numeric ELSE mo_plafond END,
       modifie_le  = now()
+     WHERE ref = v_cle;
+    -- Cohérence du mode choisi : ce qu'il faut pour calculer, sinon refus (tout est annulé).
+    IF EXISTS (SELECT 1 FROM ot_references WHERE ref = v_cle AND (
+         (mode = 'temps' AND NOT coalesce(temps_min, 0) > 0) OR
+         (mode = 'base'  AND mo_base IS NULL) OR
+         (mode = 'impose' AND mo IS NULL))) THEN
+      RAISE EXCEPTION USING MESSAGE = 'Mode incomplet : indiquez le temps, le montant de base ou le prix';
+    END IF;
+    UPDATE ot_references SET
+      mo_base = CASE WHEN mode = 'temps' THEN ceil(temps_min * _ot_parametre('taux_base') / 60) ELSE mo_base END,
+      mo = CASE WHEN mode IN ('temps', 'base', 'heure', 'minute')
+                THEN _ot_mo_calculee(mode, temps_min, mo_base, _ot_parametre('taux_horaire'), _ot_parametre('taux_base'))
+                WHEN mode IS NULL THEN NULL ELSE mo END
      WHERE ref = v_cle;
     SELECT to_jsonb(r) INTO v_apres FROM ot_references r WHERE r.ref = v_cle;
   ELSIF p_type = 'forfait' THEN
@@ -445,9 +466,12 @@ BEGIN
     END IF;
     UPDATE ot_forfaits SET
       intitule   = CASE WHEN v ? 'intitule' AND btrim(coalesce(v->>'intitule', '')) <> '' THEN btrim(v->>'intitule') ELSE intitule END,
-      mo         = CASE WHEN v ? 'mo' THEN coalesce((v->>'mo')::numeric, 0) ELSE mo END,
+      mo_base    = CASE WHEN v ? 'mo' THEN coalesce((v->>'mo')::numeric, 0) * _ot_parametre('taux_base') / _ot_parametre('taux_horaire')
+                        WHEN v ? 'mo_base' THEN coalesce((v->>'mo_base')::numeric, 0) ELSE mo_base END,
       prix_piece = CASE WHEN v ? 'prix_piece' THEN coalesce((v->>'prix_piece')::numeric, 0) ELSE prix_piece END,
       modifie_le = now()
+     WHERE lettre = v_cle;
+    UPDATE ot_forfaits SET mo = _ot_arrondi_sup(mo_base * _ot_parametre('taux_horaire') / _ot_parametre('taux_base'))
      WHERE lettre = v_cle;
     SELECT to_jsonb(f) INTO v_apres FROM ot_forfaits f WHERE f.lettre = v_cle;
   ELSIF p_type = 'parametre' THEN
@@ -455,18 +479,24 @@ BEGIN
     IF v_avant IS NULL THEN
       RETURN jsonb_build_object('ok', false, 'message', 'Paramètre inconnu : ' || v_cle);
     END IF;
-    IF jsonb_typeof(v->'valeur') <> 'number' THEN
-      RETURN jsonb_build_object('ok', false, 'message', 'Valeur manquante');
+    IF jsonb_typeof(v->'valeur') <> 'number' OR (v->>'valeur')::numeric <= 0 THEN
+      RETURN jsonb_build_object('ok', false, 'message', 'Valeur invalide');
     END IF;
     UPDATE ot_parametres SET valeur = (v->>'valeur')::numeric WHERE cle = v_cle;
+    IF v_cle IN ('taux_horaire', 'taux_base') THEN
+      v_n := _ot_recalculer_tarifs();
+    END IF;
     SELECT to_jsonb(p) INTO v_apres FROM ot_parametres p WHERE p.cle = v_cle;
+    v_apres := v_apres || jsonb_build_object('tarifs_recalcules', v_n);
   ELSE
     RETURN jsonb_build_object('ok', false, 'message', 'Type inconnu : ' || coalesce(p_type, '?'));
   END IF;
 
   INSERT INTO ot_tarifs_journal (par, type, cle, avant, apres)
   VALUES (btrim(coalesce(p_par, '')), p_type, v_cle, v_avant, v_apres);
-  RETURN jsonb_build_object('ok', true, 'avant', v_avant, 'apres', v_apres);
+  RETURN jsonb_build_object('ok', true, 'avant', v_avant, 'apres', v_apres, 'recalcules', v_n);
+EXCEPTION WHEN raise_exception THEN
+  RETURN jsonb_build_object('ok', false, 'message', SQLERRM);
 END;
 $function$;
 
@@ -479,14 +509,14 @@ AS $function$
   SELECT jsonb_build_object(
     'parametres', (SELECT jsonb_object_agg(cle, valeur) FROM ot_parametres),
     'forfaits', coalesce((SELECT jsonb_agg(jsonb_build_object(
-        'lettre', f.lettre, 'intitule', f.intitule, 'mo', f.mo, 'prix_piece', f.prix_piece,
+        'lettre', f.lettre, 'intitule', f.intitule, 'mo', f.mo, 'mo_base', f.mo_base, 'prix_piece', f.prix_piece,
         'pieces', coalesce((SELECT jsonb_agg(jsonb_build_object('ref', p.ref, 'qte', p.qte) ORDER BY p.ref)
                               FROM ot_forfait_pieces p WHERE p.lettre = f.lettre), '[]'::jsonb))
         ORDER BY f.lettre) FROM ot_forfaits f), '[]'::jsonb),
     'references', coalesce((SELECT jsonb_agg(jsonb_build_object(
         'ref', r.ref, 'description', r.description, 'categorie', r.categorie, 'unite', r.unite,
-        'op_code', r.op_code, 'mo', r.mo, 'prix_piece', r.prix_piece, 'mo_plafond', r.mo_plafond,
-        'temps_min', r.temps_min) ORDER BY r.ref) FROM ot_references r), '[]'::jsonb));
+        'op_code', r.op_code, 'mode', r.mode, 'temps_min', r.temps_min, 'mo_base', r.mo_base, 'mo', r.mo,
+        'prix_piece', r.prix_piece, 'mo_plafond', r.mo_plafond) ORDER BY r.ref) FROM ot_references r), '[]'::jsonb));
 $function$;
 
 CREATE OR REPLACE FUNCTION public.ot_tarifs_journal_liste(p_limit integer DEFAULT 200)
@@ -499,6 +529,30 @@ AS $function$
                                                'cle', j.cle, 'avant', j.avant, 'apres', j.apres)
                             ORDER BY j.le DESC, j.id DESC), '[]'::jsonb)
     FROM (SELECT * FROM ot_tarifs_journal ORDER BY le DESC, id DESC LIMIT greatest(coalesce(p_limit, 200), 1)) j;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_taux_apercu(p_taux numeric)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH p AS (SELECT _ot_parametre('taux_horaire') AS t, _ot_parametre('taux_base') AS tb),
+  ch AS (
+    SELECT 'reference' AS type, r.ref AS cle, r.description, r.mo AS avant,
+           _ot_mo_calculee(r.mode, r.temps_min, r.mo_base, p_taux, p.tb) AS apres
+      FROM ot_references r, p WHERE r.mode IN ('temps', 'base', 'heure', 'minute')
+    UNION ALL
+    SELECT 'forfait', f.lettre, f.intitule, f.mo, _ot_arrondi_sup(f.mo_base * p_taux / p.tb)
+      FROM ot_forfaits f, p WHERE f.mo_base IS NOT NULL
+  )
+  SELECT jsonb_build_object(
+    'taux_actuel', (SELECT t FROM p), 'taux_nouveau', p_taux,
+    'nb', (SELECT count(*) FROM ch WHERE avant IS DISTINCT FROM apres),
+    'changements', coalesce((SELECT jsonb_agg(jsonb_build_object('type', type, 'cle', cle, 'description', description,
+                     'avant', avant, 'apres', apres) ORDER BY type DESC, cle) FROM ch WHERE avant IS DISTINCT FROM apres), '[]'::jsonb),
+    'imposes', coalesce((SELECT jsonb_agg(jsonb_build_object('ref', ref, 'description', description, 'mo', mo, 'temps_min', temps_min)
+                     ORDER BY ref) FROM ot_references WHERE mode = 'impose'), '[]'::jsonb));
 $function$;
 
 CREATE OR REPLACE FUNCTION public.pointer_par_nfc(p_uid text)
