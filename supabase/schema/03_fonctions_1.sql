@@ -208,6 +208,82 @@ CREATE OR REPLACE FUNCTION public._lundi(p_date date)
  IMMUTABLE
 AS $function$ SELECT p_date - ((extract(dow from p_date)::int + 6) % 7); $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_fiche_json(p_id bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+    'id', f.id, 'code_planning', f.code_planning, 'numero_module', f.numero_module,
+    'agence', f.agence, 'type_module', f.type_module, 'commentaire', f.commentaire,
+    'numero_ot', f.numero_ot, 'statut', f.statut, 'notes', f.notes, 'total_ht', f.total_ht,
+    'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
+    'version', _stock_iso(f.modifie_le),
+    'valide_par', f.valide_par, 'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+    'totaux', _ot_totaux(f.id),
+    'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c)) FROM _ot_lignes_calcul(f.id) c), '[]'::jsonb))
+    FROM ot_fiches f WHERE f.id = p_id;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_lignes_calcul(p_fiche bigint)
+ RETURNS TABLE(id bigint, ordre integer, bloc text, ref text, libelle text, quantite numeric, unite text, occasion boolean, mo_saisi numeric, prix_piece_saisi numeric, origine text, mo_unitaire numeric, prix_piece_unitaire numeric, connue boolean, mo_ligne numeric, piece_ligne numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH t AS (
+    SELECT l.*,
+           coalesce(l.mo_unitaire, f.mo, r.mo, 0) AS mo_u,
+           coalesce(l.prix_piece_saisi, l.prix_piece_unitaire, f.prix_piece, r.prix_piece, 0) AS pp_u,
+           r.mo_plafond,
+           (f.lettre IS NOT NULL OR r.ref IS NOT NULL) AS connue
+      FROM ot_lignes l
+      LEFT JOIN ot_forfaits f ON f.lettre = l.ref
+      LEFT JOIN ot_references r ON r.ref = l.ref AND f.lettre IS NULL
+     WHERE l.fiche_id = p_fiche
+  )
+  SELECT t.id, t.ordre, t.bloc, t.ref, t.libelle, t.quantite, t.unite, t.occasion, t.mo_saisi,
+         t.prix_piece_saisi, t.origine, t.mo_u, t.pp_u, t.connue,
+         CASE WHEN coalesce(t.quantite, 0) = 0 THEN 0
+              WHEN t.mo_saisi IS NOT NULL THEN t.mo_saisi
+              WHEN t.bloc = 'sanitaire' THEN 0
+              WHEN t.mo_plafond IS NOT NULL THEN least(t.quantite * t.mo_u, t.mo_plafond)
+              ELSE t.quantite * t.mo_u END,
+         CASE WHEN t.bloc = 'sanitaire' AND coalesce(t.quantite, 0) > 0 THEN t.quantite * t.pp_u ELSE 0 END
+    FROM t
+   ORDER BY t.ordre, t.id;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_parametre(p_cle text)
+ RETURNS numeric
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT valeur FROM ot_parametres WHERE cle = p_cle;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_totaux(p_fiche bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH s AS (
+    SELECT coalesce(sum(mo_ligne), 0) AS mo, coalesce(sum(piece_ligne), 0) AS pieces
+      FROM _ot_lignes_calcul(p_fiche)
+  ), m AS (
+    SELECT s.*, CASE WHEN s.pieces > 0
+                     THEN round((s.pieces + 0.5) * _ot_parametre('majoration_pieces') / 0.5) * 0.5
+                     ELSE 0 END AS mo_pieces
+      FROM s
+  )
+  SELECT jsonb_build_object('mo_lignes', round(m.mo, 2), 'somme_pieces', round(m.pieces, 2),
+                            'mo_pieces', m.mo_pieces, 'total', round(m.mo + m.mo_pieces, 2))
+    FROM m;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._paques(p_annee integer)
  RETURNS date
  LANGUAGE plpgsql

@@ -204,6 +204,303 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_fiche(p_id bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(_ot_fiche_json(p_id), jsonb_build_object('ok', false, 'message', 'Fiche introuvable'));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_fiche_enregistrer(p_id bigint, p_lignes jsonb, p_notes text, p_par text, p_version text, p_admin boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_f ot_fiches;
+BEGIN
+  SELECT * INTO v_f FROM ot_fiches WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fiche introuvable');
+  END IF;
+  IF _stock_iso(v_f.modifie_le) IS DISTINCT FROM p_version THEN
+    RETURN jsonb_build_object('ok', false, 'conflit', true,
+                              'message', 'La fiche a été modifiée par ailleurs : rechargez-la');
+  END IF;
+  IF NOT (v_f.statut = 'brouillon' OR (v_f.statut = 'a_valider' AND p_admin)) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fiche non modifiable (' || v_f.statut || ')');
+  END IF;
+  IF jsonb_typeof(coalesce(p_lignes, 'null'::jsonb)) <> 'array' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Lignes manquantes');
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_lignes) e
+              WHERE coalesce(e->>'bloc', '') NOT IN ('pieces', 'sanitaire', 'diverses', 'travaux')
+                 OR coalesce(e->>'origine', 'atelier') NOT IN ('atelier', 'office', 'prevu', 'bureau')
+                 OR (e ? 'quantite' AND jsonb_typeof(e->'quantite') NOT IN ('number', 'null'))
+                 OR (jsonb_typeof(e->'quantite') = 'number' AND (e->>'quantite')::numeric < 0)
+                 OR (btrim(coalesce(e->>'ref', '')) = '' AND btrim(coalesce(e->>'libelle', '')) = '')) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Ligne invalide (bloc, origine, quantité ou réf.)');
+  END IF;
+
+  DELETE FROM ot_lignes WHERE fiche_id = p_id;
+  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, occasion,
+                         mo_saisi, prix_piece_saisi, origine)
+  SELECT p_id, e.n::integer, e.v->>'bloc', nullif(btrim(coalesce(e.v->>'ref', '')), ''),
+         btrim(coalesce(e.v->>'libelle', '')),
+         CASE WHEN jsonb_typeof(e.v->'quantite') = 'number' THEN (e.v->>'quantite')::numeric END,
+         coalesce(nullif(btrim(e.v->>'unite'), ''), 'u'),
+         coalesce((e.v->>'occasion')::boolean, false),
+         CASE WHEN p_admin AND jsonb_typeof(e.v->'mo_saisi') = 'number' THEN (e.v->>'mo_saisi')::numeric END,
+         CASE WHEN p_admin AND jsonb_typeof(e.v->'prix_piece_saisi') = 'number' THEN (e.v->>'prix_piece_saisi')::numeric END,
+         coalesce(e.v->>'origine', 'atelier')
+    FROM jsonb_array_elements(p_lignes) WITH ORDINALITY AS e(v, n);
+
+  UPDATE ot_fiches
+     SET notes = coalesce(p_notes, notes), modifie_le = clock_timestamp(),
+         saisi_par = CASE WHEN saisi_par = '' THEN btrim(coalesce(p_par, '')) ELSE saisi_par END
+   WHERE id = p_id;
+  RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_fiche_ouvrir(p_code text, p_module jsonb, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_code text := upper(btrim(coalesce(p_code, '')));
+  v_id   bigint;
+BEGIN
+  IF v_code = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Code planning manquant');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ot_fiche:' || v_code));
+
+  SELECT id INTO v_id FROM ot_fiches
+   WHERE code_planning = v_code AND statut IN ('brouillon', 'a_valider', 'validee')
+   ORDER BY cree_le DESC LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN _ot_fiche_json(v_id) || jsonb_build_object('ok', true, 'existante', true);
+  END IF;
+
+  INSERT INTO ot_fiches (code_planning, numero_module, agence, type_module, commentaire, saisi_par)
+  VALUES (v_code, btrim(coalesce(p_module->>'numero_module', '')), btrim(coalesce(p_module->>'agence', '')),
+          btrim(coalesce(p_module->>'type_module', '')), btrim(coalesce(p_module->>'commentaire', '')),
+          btrim(coalesce(p_par, '')))
+  RETURNING id INTO v_id;
+
+  -- Lignes d'office (modèle « OPERATIONS (2) std » de la matrice) : le bureau retire ce qui ne s'applique pas.
+  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+  SELECT v_id, o.ordre, 'diverses', o.ref,
+         coalesce(f.intitule, r.description, o.ref), 1, 'u', 'office'
+    FROM (VALUES (1000, 'E'), (1001, 'SON-0074'), (1002, 'SON-0072')) AS o(ordre, ref)
+    LEFT JOIN ot_forfaits f ON f.lettre = o.ref
+    LEFT JOIN ot_references r ON r.ref = o.ref;
+
+  -- Poses 🔧 déjà enregistrées dans le stock pour ce code planning.
+  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+  SELECT v_id, (row_number() OVER (ORDER BY min(m.date), m.ref))::integer, 'pieces', m.ref,
+         coalesce(nullif(max(r.description), ''), nullif(max(a.description), ''), m.ref),
+         sum(m.quantite), 'u', 'atelier'
+    FROM stock_mouvements m
+    LEFT JOIN ot_references r ON r.ref = m.ref
+    LEFT JOIN stock_articles a ON a.ref = m.ref
+   WHERE m.type = 'sortie' AND m.note ~ ('^\[Pose ' || v_code || '\]')
+   GROUP BY m.ref
+  HAVING sum(m.quantite) > 0;
+
+  RETURN _ot_fiche_json(v_id) || jsonb_build_object('ok', true, 'existante', false);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_fiche_statut(p_id bigint, p_statut text, p_par text, p_admin boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_f      ot_fiches;
+  v_de     text;
+  v_jour   text;
+  v_prefix text;
+  v_n      integer;
+BEGIN
+  SELECT * INTO v_f FROM ot_fiches WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fiche introuvable');
+  END IF;
+  v_de := v_f.statut;
+
+  IF NOT ((v_de = 'brouillon' AND p_statut = 'a_valider')
+       OR (v_de = 'a_valider' AND p_statut = 'brouillon')
+       OR (p_admin AND v_de = 'a_valider' AND p_statut = 'validee')
+       OR (p_admin AND v_de = 'validee' AND p_statut IN ('a_valider', 'envoyee'))
+       OR (p_admin AND v_de <> 'envoyee' AND v_de <> 'annulee' AND p_statut = 'annulee')) THEN
+    RETURN jsonb_build_object('ok', false, 'message',
+                              'Passage impossible : ' || v_de || ' → ' || coalesce(p_statut, '?'));
+  END IF;
+
+  IF p_statut = 'validee' THEN
+    IF NOT EXISTS (SELECT 1 FROM ot_lignes WHERE fiche_id = p_id AND coalesce(quantite, 0) > 0) THEN
+      RETURN jsonb_build_object('ok', false, 'message', 'Aucune ligne avec quantité');
+    END IF;
+    UPDATE ot_lignes l SET mo_unitaire = c.mo_unitaire, prix_piece_unitaire = c.prix_piece_unitaire
+      FROM _ot_lignes_calcul(p_id) c WHERE c.id = l.id;
+    IF v_f.numero_ot IS NULL THEN
+      -- Numéro AAMMJJ-NNNN (compteur annuel), préfixé ESSAI- pendant l'essai.
+      PERFORM pg_advisory_xact_lock(hashtext('ot_numero'));
+      v_jour   := to_char(now() AT TIME ZONE 'Europe/Paris', 'YYMMDD');
+      v_prefix := CASE WHEN _ot_parametre('essai') = 1 THEN 'ESSAI-' ELSE '' END;
+      SELECT coalesce(max(substring(numero_ot FROM '-([0-9]{4})$')::integer), 0) + 1 INTO v_n
+        FROM ot_fiches
+       WHERE numero_ot LIKE v_prefix || left(v_jour, 2) || '____-____'
+         AND (v_prefix <> '' OR numero_ot NOT LIKE 'ESSAI-%');
+      v_f.numero_ot := v_prefix || v_jour || '-' || lpad(v_n::text, 4, '0');
+    END IF;
+    UPDATE ot_fiches
+       SET statut = 'validee', numero_ot = v_f.numero_ot, total_ht = (_ot_totaux(p_id)->>'total')::numeric,
+           valide_par = btrim(coalesce(p_par, '')), valide_le = now(), modifie_le = clock_timestamp()
+     WHERE id = p_id;
+  ELSIF v_de = 'validee' AND p_statut = 'a_valider' THEN
+    UPDATE ot_lignes SET mo_unitaire = NULL, prix_piece_unitaire = NULL WHERE fiche_id = p_id;
+    UPDATE ot_fiches SET statut = 'a_valider', total_ht = NULL, valide_par = NULL, valide_le = NULL,
+                         modifie_le = clock_timestamp()
+     WHERE id = p_id;
+  ELSE
+    UPDATE ot_fiches
+       SET statut = p_statut, modifie_le = clock_timestamp(),
+           envoye_le = CASE WHEN p_statut = 'envoyee' THEN now() ELSE envoye_le END
+     WHERE id = p_id;
+  END IF;
+  RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_fiches_liste(p_statuts text[] DEFAULT NULL::text[])
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'id', f.id, 'code_planning', f.code_planning, 'numero_module', f.numero_module,
+      'agence', f.agence, 'type_module', f.type_module, 'numero_ot', f.numero_ot, 'statut', f.statut,
+      'total_ht', coalesce(f.total_ht, (_ot_totaux(f.id)->>'total')::numeric),
+      'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
+      'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+      'nb_lignes', (SELECT count(*) FROM ot_lignes l WHERE l.fiche_id = f.id AND coalesce(l.quantite, 0) > 0))
+      ORDER BY f.modifie_le DESC, f.id DESC), '[]'::jsonb)
+    FROM ot_fiches f
+   WHERE CASE WHEN coalesce(array_length(p_statuts, 1), 0) = 0 THEN f.statut <> 'annulee'
+              ELSE f.statut = ANY (p_statuts) END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tarif_modifier(p_type text, p_cle text, p_valeurs jsonb, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_cle   text := btrim(coalesce(p_cle, ''));
+  v       jsonb := coalesce(p_valeurs, '{}'::jsonb);
+  v_avant jsonb;
+  v_apres jsonb;
+BEGIN
+  IF v_cle = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Clé manquante');
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_each(v) e
+              WHERE e.key IN ('mo', 'prix_piece', 'mo_plafond', 'valeur')
+                AND (jsonb_typeof(e.value) NOT IN ('number', 'null')
+                     OR (jsonb_typeof(e.value) = 'number' AND (e.value #>> '{}')::numeric < 0))) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Montant invalide');
+  END IF;
+
+  IF p_type = 'reference' THEN
+    SELECT to_jsonb(r) INTO v_avant FROM ot_references r WHERE r.ref = v_cle;
+    INSERT INTO ot_references (ref, description)
+    VALUES (v_cle, coalesce(v->>'description', (SELECT description FROM stock_articles WHERE ref = v_cle), ''))
+    ON CONFLICT (ref) DO NOTHING;
+    UPDATE ot_references SET
+      description = CASE WHEN v ? 'description' THEN btrim(coalesce(v->>'description', '')) ELSE description END,
+      categorie   = CASE WHEN v ? 'categorie' THEN btrim(coalesce(v->>'categorie', '')) ELSE categorie END,
+      unite       = CASE WHEN v ? 'unite' THEN coalesce(nullif(btrim(v->>'unite'), ''), 'unité') ELSE unite END,
+      mo          = CASE WHEN v ? 'mo' THEN (v->>'mo')::numeric ELSE mo END,
+      prix_piece  = CASE WHEN v ? 'prix_piece' THEN (v->>'prix_piece')::numeric ELSE prix_piece END,
+      mo_plafond  = CASE WHEN v ? 'mo_plafond' THEN (v->>'mo_plafond')::numeric ELSE mo_plafond END,
+      modifie_le  = now()
+     WHERE ref = v_cle;
+    SELECT to_jsonb(r) INTO v_apres FROM ot_references r WHERE r.ref = v_cle;
+  ELSIF p_type = 'forfait' THEN
+    SELECT to_jsonb(f) INTO v_avant FROM ot_forfaits f WHERE f.lettre = v_cle;
+    IF v_avant IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'message', 'Forfait inconnu : ' || v_cle);
+    END IF;
+    UPDATE ot_forfaits SET
+      intitule   = CASE WHEN v ? 'intitule' AND btrim(coalesce(v->>'intitule', '')) <> '' THEN btrim(v->>'intitule') ELSE intitule END,
+      mo         = CASE WHEN v ? 'mo' THEN coalesce((v->>'mo')::numeric, 0) ELSE mo END,
+      prix_piece = CASE WHEN v ? 'prix_piece' THEN coalesce((v->>'prix_piece')::numeric, 0) ELSE prix_piece END,
+      modifie_le = now()
+     WHERE lettre = v_cle;
+    SELECT to_jsonb(f) INTO v_apres FROM ot_forfaits f WHERE f.lettre = v_cle;
+  ELSIF p_type = 'parametre' THEN
+    SELECT to_jsonb(p) INTO v_avant FROM ot_parametres p WHERE p.cle = v_cle;
+    IF v_avant IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'message', 'Paramètre inconnu : ' || v_cle);
+    END IF;
+    IF jsonb_typeof(v->'valeur') <> 'number' THEN
+      RETURN jsonb_build_object('ok', false, 'message', 'Valeur manquante');
+    END IF;
+    UPDATE ot_parametres SET valeur = (v->>'valeur')::numeric WHERE cle = v_cle;
+    SELECT to_jsonb(p) INTO v_apres FROM ot_parametres p WHERE p.cle = v_cle;
+  ELSE
+    RETURN jsonb_build_object('ok', false, 'message', 'Type inconnu : ' || coalesce(p_type, '?'));
+  END IF;
+
+  INSERT INTO ot_tarifs_journal (par, type, cle, avant, apres)
+  VALUES (btrim(coalesce(p_par, '')), p_type, v_cle, v_avant, v_apres);
+  RETURN jsonb_build_object('ok', true, 'avant', v_avant, 'apres', v_apres);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tarifs()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+    'parametres', (SELECT jsonb_object_agg(cle, valeur) FROM ot_parametres),
+    'forfaits', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'lettre', f.lettre, 'intitule', f.intitule, 'mo', f.mo, 'prix_piece', f.prix_piece,
+        'pieces', coalesce((SELECT jsonb_agg(jsonb_build_object('ref', p.ref, 'qte', p.qte) ORDER BY p.ref)
+                              FROM ot_forfait_pieces p WHERE p.lettre = f.lettre), '[]'::jsonb))
+        ORDER BY f.lettre) FROM ot_forfaits f), '[]'::jsonb),
+    'references', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'ref', r.ref, 'description', r.description, 'categorie', r.categorie, 'unite', r.unite,
+        'op_code', r.op_code, 'mo', r.mo, 'prix_piece', r.prix_piece, 'mo_plafond', r.mo_plafond,
+        'temps_min', r.temps_min) ORDER BY r.ref) FROM ot_references r), '[]'::jsonb));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tarifs_journal_liste(p_limit integer DEFAULT 200)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('le', _stock_iso(j.le), 'par', j.par, 'type', j.type,
+                                               'cle', j.cle, 'avant', j.avant, 'apres', j.apres)
+                            ORDER BY j.le DESC, j.id DESC), '[]'::jsonb)
+    FROM (SELECT * FROM ot_tarifs_journal ORDER BY le DESC, id DESC LIMIT greatest(coalesce(p_limit, 200), 1)) j;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.pointer_par_nfc(p_uid text)
  RETURNS jsonb
  LANGUAGE plpgsql
