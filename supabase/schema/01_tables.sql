@@ -205,6 +205,7 @@ CREATE TABLE public.ot_fiches (
   valide_par text,
   valide_le timestamp with time zone,
   envoye_le timestamp with time zone,
+  documents jsonb,
   CONSTRAINT ot_fiches_code_planning_check CHECK ((btrim(code_planning) <> ''::text)),
   CONSTRAINT ot_fiches_numero_ot_key UNIQUE (numero_ot),
   CONSTRAINT ot_fiches_pkey PRIMARY KEY (id),

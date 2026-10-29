@@ -230,6 +230,7 @@ AS $function$
     'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
     'version', _stock_iso(f.modifie_le),
     'valide_par', f.valide_par, 'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+    'documents', f.documents,
     'totaux', _ot_totaux(f.id),
     'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c)) FROM _ot_lignes_calcul(f.id) c), '[]'::jsonb))
     FROM ot_fiches f WHERE f.id = p_id;

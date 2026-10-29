@@ -234,6 +234,16 @@ AS $function$
   FROM (SELECT p_id AS id) q LEFT JOIN ot_fiches f ON f.id = q.id;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_fiche_documents_noter(p_id bigint, p_documents jsonb)
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  UPDATE ot_fiches SET documents = p_documents WHERE id = p_id
+  RETURNING jsonb_build_object('ok', true);
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_fiche_enregistrer(p_id bigint, p_lignes jsonb, p_notes text, p_par text, p_version text, p_admin boolean)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -412,9 +422,11 @@ AS $function$
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'id', f.id, 'code_planning', f.code_planning, 'numero_module', f.numero_module,
       'agence', f.agence, 'type_module', f.type_module, 'numero_ot', f.numero_ot, 'statut', f.statut,
+      'commentaire', f.commentaire,
       'total_ht', coalesce(f.total_ht, (_ot_totaux(f.id)->>'total')::numeric),
       'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
       'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+      'documents', f.documents,
       'nb_lignes', (SELECT count(*) FROM ot_lignes l WHERE l.fiche_id = f.id AND coalesce(l.quantite, 0) > 0))
       ORDER BY f.modifie_le DESC, f.id DESC), '[]'::jsonb)
     FROM ot_fiches f
