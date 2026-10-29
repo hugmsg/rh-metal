@@ -224,9 +224,8 @@ AS $function$
     'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c) || jsonb_build_object(
         'description', coalesce(nullif(c.libelle, ''), fo.intitule, r.description, c.ref),
         'op_code', r.op_code, 'forfait', fo.lettre IS NOT NULL)
-        -- ordre de la matrice, puis réf. numériques croissantes, puis le reste
-        ORDER BY coalesce(fo.ordre, r.ordre, 1000000), (c.ref ~ '^[0-9]+$') DESC,
-                 CASE WHEN c.ref ~ '^[0-9]+$' THEN c.ref::numeric END, c.ref, c.ordre, c.id)
+        -- ordre de saisie de la fiche (= ordre de la fiche papier), choix de Hugo du 2026-10-29
+        ORDER BY c.ordre, c.id)
       FROM _ot_lignes_calcul(f.id) c
       LEFT JOIN ot_forfaits fo ON fo.lettre = c.ref
       LEFT JOIN ot_references r ON r.ref = c.ref AND fo.lettre IS NULL), '[]'::jsonb),
