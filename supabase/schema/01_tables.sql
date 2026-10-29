@@ -229,6 +229,7 @@ CREATE TABLE public.ot_forfaits (
   prix_piece numeric DEFAULT 0 NOT NULL,
   modifie_le timestamp with time zone DEFAULT now() NOT NULL,
   mo_base numeric,
+  ordre integer,
   CONSTRAINT ot_forfaits_lettre_check CHECK ((btrim(lettre) <> ''::text)),
   CONSTRAINT ot_forfaits_pkey PRIMARY KEY (lettre)
 );
@@ -283,6 +284,7 @@ CREATE TABLE public.ot_references (
   mo_plafond numeric,
   mode text,
   coef_fourniture numeric DEFAULT 1 NOT NULL,
+  ordre integer,
   CONSTRAINT ot_references_coef_fourniture_check CHECK ((coef_fourniture > (0)::numeric)),
   CONSTRAINT ot_references_mo_plafond_check CHECK ((mo_plafond >= (0)::numeric)),
   CONSTRAINT ot_references_mode_check CHECK ((mode = ANY (ARRAY['temps'::text, 'base'::text, 'heure'::text, 'minute'::text, 'impose'::text]))),
