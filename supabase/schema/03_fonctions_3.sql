@@ -213,6 +213,25 @@ AS $function$
   SELECT coalesce(_ot_fiche_json(p_id), jsonb_build_object('ok', false, 'message', 'Fiche introuvable'));
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_fiche_documents(p_id bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT CASE WHEN f.id IS NULL THEN jsonb_build_object('ok', false, 'message', 'Fiche introuvable')
+  ELSE _ot_fiche_json(f.id) || jsonb_build_object(
+    'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c) || jsonb_build_object(
+        'description', coalesce(nullif(c.libelle, ''), fo.intitule, r.description, c.ref),
+        'op_code', r.op_code, 'forfait', fo.lettre IS NOT NULL) ORDER BY c.ordre, c.id)
+      FROM _ot_lignes_calcul(f.id) c
+      LEFT JOIN ot_forfaits fo ON fo.lettre = c.ref
+      LEFT JOIN ot_references r ON r.ref = c.ref AND fo.lettre IS NULL), '[]'::jsonb),
+    'fournitures', coalesce((SELECT jsonb_agg(to_jsonb(x)) FROM _ot_fournitures(f.id) x), '[]'::jsonb))
+  END
+  FROM (SELECT p_id AS id) q LEFT JOIN ot_fiches f ON f.id = q.id;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_fiche_enregistrer(p_id bigint, p_lignes jsonb, p_notes text, p_par text, p_version text, p_admin boolean)
  RETURNS jsonb
  LANGUAGE plpgsql

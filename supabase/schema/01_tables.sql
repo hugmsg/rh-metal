@@ -282,6 +282,8 @@ CREATE TABLE public.ot_references (
   modifie_le timestamp with time zone DEFAULT now() NOT NULL,
   mo_plafond numeric,
   mode text,
+  coef_fourniture numeric DEFAULT 1 NOT NULL,
+  CONSTRAINT ot_references_coef_fourniture_check CHECK ((coef_fourniture > (0)::numeric)),
   CONSTRAINT ot_references_mo_plafond_check CHECK ((mo_plafond >= (0)::numeric)),
   CONSTRAINT ot_references_mode_check CHECK ((mode = ANY (ARRAY['temps'::text, 'base'::text, 'heure'::text, 'minute'::text, 'impose'::text]))),
   CONSTRAINT ot_references_pkey PRIMARY KEY (ref),

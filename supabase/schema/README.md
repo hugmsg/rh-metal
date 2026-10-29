@@ -1,7 +1,7 @@
 # Schéma Supabase — photo de la structure réelle
 
 Projet `ajewxwxerrjnnervzjwm` (partagé rh-metal / sonotrad-pwa), schéma `public`.
-**Photo prise le 2026-10-16, mise à jour le 2026-10-28**, lue directement en base (pas reconstituée depuis les
+**Photo prise le 2026-10-16, mise à jour le 2026-10-29**, lue directement en base (pas reconstituée depuis les
 migrations). Chaque fichier a été comparé à la base par empreinte md5 : identiques.
 
 Ce dossier contient **la structure, pas les données** (les données sont sauvegardées à part,
@@ -14,7 +14,7 @@ voir l'export nocturne vers Drive).
 | `00_extensions_sequences.sql` | extensions, séquences |
 | `01_tables.sql` | 37 tables (dont stock_* et ot_* depuis le 2026-10-27), clés primaires/uniques/contrôles, RLS activé |
 | `02_cles_etrangeres.sql` | clés étrangères, rattachement des séquences |
-| `03_fonctions_1..4.sql` | 142 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` / `sauvegarde_empreinte` (2026-10-23) |
+| `03_fonctions_1..4.sql` | 144 fonctions (ordre alphabétique), dont `sauvegarde_export` / `sauvegarde_restaurer` / `sauvegarde_empreinte` (2026-10-23) |
 | `04_vues_index_triggers.sql` | 5 vues, index, 7 triggers, publication Realtime |
 | `05_droits.sql` | règles RLS (policies), droits tables/colonnes, droits d'exécution des fonctions — **pas dans ce dépôt** (public) : dans le dépôt privé `sonotrad-scripts/supabase/`, avec `manifeste.json` (empreinte attendue de la structure) |
 

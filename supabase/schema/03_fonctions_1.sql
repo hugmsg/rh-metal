@@ -235,6 +235,41 @@ AS $function$
     FROM ot_fiches f WHERE f.id = p_id;
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_fournitures(p_fiche bigint)
+ RETURNS TABLE(ref text, description text, quantite numeric, prix_unitaire numeric, cout numeric, interne boolean)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH lignes AS (
+    SELECT l.ref, l.quantite FROM ot_lignes l
+     WHERE l.fiche_id = p_fiche AND coalesce(l.quantite, 0) > 0 AND NOT l.occasion
+       AND l.ref IS NOT NULL AND l.ref NOT IN ('SON-0100', 'SON-0101', 'SON-0102')
+  ), pieces AS (
+    SELECT p.ref, l.quantite * p.qte AS qte                      -- forfait : ses pièces × sa quantité
+      FROM lignes l JOIN ot_forfait_pieces p ON p.lettre = l.ref
+    UNION ALL
+    SELECT l.ref, l.quantite FROM lignes l                        -- réf. ordinaire (un forfait sans pièces ne donne rien)
+     WHERE NOT EXISTS (SELECT 1 FROM ot_forfaits f WHERE f.lettre = l.ref)
+  ), totaux AS (
+    SELECT pc.ref, sum(pc.qte * coalesce(r.coef_fourniture, 1)) AS quantite
+      FROM pieces pc LEFT JOIN ot_references r ON r.ref = pc.ref
+     GROUP BY pc.ref
+  )
+  SELECT t.ref,
+         coalesce(nullif(a.description, ''), nullif(r.description, ''), t.ref),
+         t.quantite,
+         coalesce(a.prix_ht, r.prix_achat, 0),
+         round(t.quantite * coalesce(a.prix_ht, r.prix_achat, 0), 2),
+         t.ref LIKE 'SON-%'
+    FROM totaux t
+    LEFT JOIN stock_articles a ON a.ref = t.ref
+    LEFT JOIN ot_references r ON r.ref = t.ref
+   -- Ordre de la matrice : réf. Pidem croissantes (numériques d'abord), puis les codes SON.
+   ORDER BY t.ref LIKE 'SON-%', (t.ref ~ '^[0-9]+$') DESC,
+            CASE WHEN t.ref ~ '^[0-9]+$' THEN t.ref::numeric END, t.ref;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_lignes_calcul(p_fiche bigint)
  RETURNS TABLE(id bigint, ordre integer, bloc text, ref text, libelle text, quantite numeric, unite text, occasion boolean, mo_saisi numeric, prix_piece_saisi numeric, origine text, mo_unitaire numeric, prix_piece_unitaire numeric, connue boolean, mo_ligne numeric, piece_ligne numeric)
  LANGUAGE sql
