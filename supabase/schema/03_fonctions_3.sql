@@ -531,7 +531,7 @@ BEGIN
       'Historique trop court (' || coalesce(jsonb_array_length(p_lignes), 0) || ' lignes) : mauvais fichier ?');
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('ot_numero'));
-  DELETE FROM ot_historique;
+  DELETE FROM ot_historique WHERE true;
   INSERT INTO ot_historique (numero, code_planning, numero_module, agence, type_lettre, date_fin, annee, mois, total)
   SELECT nullif(btrim(x->>'numero'), ''), nullif(upper(btrim(x->>'code')), ''), nullif(btrim(x->>'module'), ''),
          nullif(btrim(x->>'agence'), ''), nullif(btrim(x->>'type'), ''),
