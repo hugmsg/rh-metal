@@ -64,6 +64,8 @@ CREATE INDEX idx_employes_actif ON public.employes USING btree (actif);
 CREATE INDEX idx_hj_date_statut ON public.heures_journalieres USING btree (date, statut);
 CREATE INDEX ot_fiches_code_planning ON public.ot_fiches USING btree (code_planning);
 CREATE INDEX ot_fiches_statut ON public.ot_fiches USING btree (statut, cree_le DESC);
+CREATE INDEX ot_historique_annee ON public.ot_historique USING btree (annee, mois);
+CREATE INDEX ot_historique_numero ON public.ot_historique USING btree (numero);
 CREATE INDEX ot_lignes_fiche ON public.ot_lignes USING btree (fiche_id, ordre, id);
 CREATE INDEX pin_essais_at_idx ON public.pin_essais USING btree (at DESC);
 CREATE INDEX pin_essais_user_at_idx ON public.pin_essais USING btree (auth_user_id, at DESC);

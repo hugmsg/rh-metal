@@ -217,6 +217,16 @@ AS $function$
   SELECT round(ceil(x * 2 - 0.000001) / 2, 2);
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_fiche_date(f ot_fiches)
+ RETURNS date
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
+  SELECT CASE WHEN f.documents->>'date_fin' ~ '^\d{4}-\d{2}-\d{2}'
+              THEN left(f.documents->>'date_fin', 10)::date
+              ELSE (f.valide_le AT TIME ZONE 'Europe/Paris')::date END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_fiche_json(p_id bigint)
  RETURNS jsonb
  LANGUAGE sql
@@ -230,10 +240,22 @@ AS $function$
     'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
     'version', _stock_iso(f.modifie_le),
     'valide_par', f.valide_par, 'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+    'stock_le', _stock_iso(f.stock_le),
     'documents', f.documents,
     'totaux', _ot_totaux(f.id),
     'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c)) FROM _ot_lignes_calcul(f.id) c), '[]'::jsonb))
     FROM ot_fiches f WHERE f.id = p_id;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_fiches_hors_excel()
+ RETURNS SETOF ot_fiches
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT f.* FROM ot_fiches f
+   WHERE f.statut IN ('validee', 'envoyee') AND f.numero_ot IS NOT NULL AND f.numero_ot NOT LIKE 'ESSAI-%'
+     AND NOT EXISTS (SELECT 1 FROM ot_historique h WHERE h.numero = f.numero_ot);
 $function$;
 
 CREATE OR REPLACE FUNCTION public._ot_fournitures(p_fiche bigint)
@@ -339,6 +361,25 @@ AS $function$
   RETURNING id;
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_prochain_numero()
+ RETURNS integer
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT greatest(
+    -- plus grand numéro de l'année dans l'Excel
+    (SELECT coalesce(max(substring(numero FROM '-([0-9]{4})$')::integer), 0) FROM ot_historique
+      WHERE numero LIKE to_char(now() AT TIME ZONE 'Europe/Paris', 'YY') || '____-____'),
+    -- compteur de l'Excel (nombre de lignes de l'année)
+    (SELECT count(*)::integer FROM ot_historique
+      WHERE annee = extract(year FROM now() AT TIME ZONE 'Europe/Paris')::integer),
+    -- plus grand vrai numéro donné par la PWA
+    (SELECT coalesce(max(substring(numero_ot FROM '-([0-9]{4})$')::integer), 0) FROM ot_fiches
+      WHERE numero_ot LIKE to_char(now() AT TIME ZONE 'Europe/Paris', 'YY') || '____-____')
+  ) + 1;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_recalculer_tarifs()
  RETURNS integer
  LANGUAGE plpgsql
@@ -361,6 +402,28 @@ BEGIN
   GET DIAGNOSTICS v_n2 = ROW_COUNT;
   RETURN v_n1 + v_n2;
 END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_stock_cible(p_fiche bigint)
+ RETURNS TABLE(ref text, quantite numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  WITH lignes AS (
+    SELECT l.ref, l.quantite FROM ot_lignes l
+     WHERE l.fiche_id = p_fiche AND coalesce(l.quantite, 0) > 0 AND NOT l.occasion
+       AND l.ref IS NOT NULL AND l.ref NOT IN ('SON-0100', 'SON-0101', 'SON-0102')
+  ), pieces AS (
+    SELECT p.ref, l.quantite * p.qte AS qte FROM lignes l JOIN ot_forfait_pieces p ON p.lettre = l.ref
+    UNION ALL
+    SELECT l.ref, l.quantite FROM lignes l WHERE NOT EXISTS (SELECT 1 FROM ot_forfaits f WHERE f.lettre = l.ref)
+  )
+  SELECT pc.ref, sum(pc.qte * coalesce(r.coef_stock, 1))
+    FROM pieces pc
+    JOIN stock_articles a ON a.ref = pc.ref
+    LEFT JOIN ot_references r ON r.ref = pc.ref
+   GROUP BY pc.ref;
 $function$;
 
 CREATE OR REPLACE FUNCTION public._ot_totaux(p_fiche bigint)

@@ -333,6 +333,11 @@ BEGIN
     LEFT JOIN ot_forfaits f ON f.lettre = o.ref
     LEFT JOIN ot_references r ON r.ref = o.ref;
 
+  -- Temps passé fréquents, prêts à remplir (sans quantité).
+  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+  VALUES (v_id, 2000, 'travaux', 'SON-0101', 'Enlever silicone et goudron supplémentaire', NULL, 'min', 'atelier'),
+         (v_id, 2001, 'travaux', 'SON-0102', 'Coupe panneaux', NULL, 'h', 'atelier');
+
   -- Poses 🔧 déjà enregistrées dans le stock pour ce code planning.
   INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
   SELECT v_id, (row_number() OVER (ORDER BY min(m.date), m.ref))::integer, 'pieces', m.ref,
@@ -359,8 +364,8 @@ DECLARE
   v_f      ot_fiches;
   v_de     text;
   v_jour   text;
-  v_prefix text;
   v_n      integer;
+  v_stock  jsonb;
 BEGIN
   SELECT * INTO v_f FROM ot_fiches WHERE id = p_id FOR UPDATE;
   IF NOT FOUND THEN
@@ -383,21 +388,24 @@ BEGIN
     END IF;
     UPDATE ot_lignes l SET mo_unitaire = c.mo_unitaire, prix_piece_unitaire = c.prix_piece_unitaire
       FROM _ot_lignes_calcul(p_id) c WHERE c.id = l.id;
-    IF v_f.numero_ot IS NULL THEN
-      -- Numéro AAMMJJ-NNNN (compteur annuel), préfixé ESSAI- pendant l'essai.
+    IF v_f.numero_ot IS NULL OR (v_f.numero_ot LIKE 'ESSAI-%' AND _ot_parametre('essai') <> 1) THEN
       PERFORM pg_advisory_xact_lock(hashtext('ot_numero'));
-      v_jour   := to_char(now() AT TIME ZONE 'Europe/Paris', 'YYMMDD');
-      v_prefix := CASE WHEN _ot_parametre('essai') = 1 THEN 'ESSAI-' ELSE '' END;
-      SELECT coalesce(max(substring(numero_ot FROM '-([0-9]{4})$')::integer), 0) + 1 INTO v_n
-        FROM ot_fiches
-       WHERE numero_ot LIKE v_prefix || left(v_jour, 2) || '____-____'
-         AND (v_prefix <> '' OR numero_ot NOT LIKE 'ESSAI-%');
-      v_f.numero_ot := v_prefix || v_jour || '-' || lpad(v_n::text, 4, '0');
+      v_jour := to_char(now() AT TIME ZONE 'Europe/Paris', 'YYMMDD');
+      IF _ot_parametre('essai') = 1 THEN
+        SELECT coalesce(max(substring(numero_ot FROM '-([0-9]{4})$')::integer), 0) + 1 INTO v_n
+          FROM ot_fiches WHERE numero_ot LIKE 'ESSAI-' || left(v_jour, 2) || '____-____';
+        v_f.numero_ot := 'ESSAI-' || v_jour || '-' || lpad(v_n::text, 4, '0');
+      ELSE
+        v_f.numero_ot := v_jour || '-' || lpad(_ot_prochain_numero()::text, 4, '0');
+      END IF;
     END IF;
     UPDATE ot_fiches
        SET statut = 'validee', numero_ot = v_f.numero_ot, total_ht = (_ot_totaux(p_id)->>'total')::numeric,
            valide_par = btrim(coalesce(p_par, '')), valide_le = now(), modifie_le = clock_timestamp()
      WHERE id = p_id;
+    IF _ot_parametre('essai') <> 1 THEN
+      v_stock := ot_fiche_stock(p_id, p_par);
+    END IF;
   ELSIF v_de = 'validee' AND p_statut = 'a_valider' THEN
     UPDATE ot_lignes SET mo_unitaire = NULL, prix_piece_unitaire = NULL WHERE fiche_id = p_id;
     UPDATE ot_fiches SET statut = 'a_valider', total_ht = NULL, valide_par = NULL, valide_le = NULL,
@@ -409,7 +417,59 @@ BEGIN
            envoye_le = CASE WHEN p_statut = 'envoyee' THEN now() ELSE envoye_le END
      WHERE id = p_id;
   END IF;
-  RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true);
+  RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true)
+         || CASE WHEN v_stock IS NOT NULL THEN jsonb_build_object('stock', v_stock) ELSE '{}'::jsonb END;
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_fiche_stock(p_id bigint, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_f       ot_fiches;
+  v_prefixe text;
+  v_note    text;
+  v_sorties jsonb;
+  v_entrees jsonb;
+  v_r1      jsonb;
+  v_r2      jsonb;
+BEGIN
+  SELECT * INTO v_f FROM ot_fiches WHERE id = p_id;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'message', 'Fiche introuvable'); END IF;
+  IF v_f.statut = 'annulee' THEN RETURN jsonb_build_object('ok', false, 'message', 'Fiche annulée'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ot_stock:' || v_f.code_planning));
+  v_prefixe := '[Pose ' || v_f.code_planning || ']';
+  v_note := v_prefixe || ' ' || coalesce(nullif(btrim(concat_ws(' ', v_f.type_module, v_f.numero_module)), ''), v_f.code_planning)
+            || ' · fiche OT ' || coalesce(v_f.numero_ot, 'n° ' || v_f.id);
+
+  WITH cible AS (SELECT * FROM _ot_stock_cible(p_id)),
+  deja AS (
+    SELECT m.ref, sum(CASE m.type WHEN 'sortie' THEN m.quantite WHEN 'entrée' THEN -m.quantite ELSE 0 END) AS q
+      FROM stock_mouvements m
+     WHERE left(m.note, length(v_prefixe)) = v_prefixe
+     GROUP BY m.ref
+  ), ecart AS (
+    SELECT coalesce(c.ref, d.ref) AS ref, round(coalesce(c.quantite, 0) - coalesce(d.q, 0), 3) AS e
+      FROM cible c FULL JOIN deja d ON d.ref = c.ref
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('ref', ref, 'qty', e) ORDER BY ref) FILTER (WHERE e > 0), '[]'::jsonb),
+         coalesce(jsonb_agg(jsonb_build_object('ref', ref, 'qty', -e) ORDER BY ref) FILTER (WHERE e < 0), '[]'::jsonb)
+    INTO v_sorties, v_entrees
+    FROM ecart;
+
+  IF jsonb_array_length(v_sorties) > 0 THEN
+    v_r1 := stock_ajouter('sortie', p_par, v_note, v_sorties);
+    IF (v_r1->>'ok')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'Sortie de stock impossible : %', v_r1->>'message'; END IF;
+  END IF;
+  IF jsonb_array_length(v_entrees) > 0 THEN
+    v_r2 := stock_ajouter('entrée', p_par, v_note || ' · correction (trop sorti)', v_entrees);
+    IF (v_r2->>'ok')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'Retour en stock impossible : %', v_r2->>'message'; END IF;
+  END IF;
+  UPDATE ot_fiches SET stock_le = now() WHERE id = p_id;
+  RETURN jsonb_build_object('ok', true, 'sorties', v_sorties, 'entrees', v_entrees);
 END;
 $function$;
 
@@ -432,6 +492,100 @@ AS $function$
     FROM ot_fiches f
    WHERE CASE WHEN coalesce(array_length(p_statuts, 1), 0) = 0 THEN f.statut <> 'annulee'
               ELSE f.statut = ANY (p_statuts) END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_historique_a_reporter()
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+    'colonnes', (SELECT colonnes FROM ot_historique_import WHERE id = 1),
+    'lignes', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'id', f.id, 'numero', f.numero_ot, 'code', f.code_planning, 'module', f.numero_module,
+               'agence', coalesce(nullif(f.documents->>'agence', ''), f.agence),
+               'type', upper(left(btrim(coalesce(f.type_module, '')), 1)),
+               'date', _ot_fiche_date(f), 'total', f.total_ht,
+               'op', (SELECT coalesce(jsonb_object_agg(k, q), '{}'::jsonb) FROM (
+                        SELECT btrim(l->>'op_code') AS k, sum((l->>'quantite')::numeric) AS q
+                          FROM jsonb_array_elements(ot_fiche_documents(f.id)->'lignes') l
+                         WHERE coalesce((l->>'quantite')::numeric, 0) > 0 AND coalesce(btrim(l->>'op_code'), '') <> ''
+                         GROUP BY 1) t))
+             ORDER BY f.numero_ot DESC)
+        FROM _ot_fiches_hors_excel() f), '[]'::jsonb));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_historique_importer(p_lignes jsonb, p_colonnes jsonb, p_par text, p_fichier text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_nb integer;
+BEGIN
+  IF jsonb_typeof(p_lignes) <> 'array' OR jsonb_array_length(p_lignes) < 100 THEN
+    RETURN jsonb_build_object('ok', false, 'message',
+      'Historique trop court (' || coalesce(jsonb_array_length(p_lignes), 0) || ' lignes) : mauvais fichier ?');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('ot_numero'));
+  DELETE FROM ot_historique;
+  INSERT INTO ot_historique (numero, code_planning, numero_module, agence, type_lettre, date_fin, annee, mois, total)
+  SELECT nullif(btrim(x->>'numero'), ''), nullif(upper(btrim(x->>'code')), ''), nullif(btrim(x->>'module'), ''),
+         nullif(btrim(x->>'agence'), ''), nullif(btrim(x->>'type'), ''),
+         CASE WHEN x->>'date' ~ '^\d{4}-\d{2}-\d{2}$' THEN (x->>'date')::date END,
+         CASE WHEN x->>'annee' ~ '^\d{4}$' THEN (x->>'annee')::integer END,
+         CASE WHEN x->>'mois' ~ '^\d{1,2}$' THEN (x->>'mois')::integer END,
+         CASE WHEN x->>'total' ~ '^-?\d+(\.\d+)?$' THEN round((x->>'total')::numeric, 2) END
+    FROM jsonb_array_elements(p_lignes) x;
+  GET DIAGNOSTICS v_nb = ROW_COUNT;
+  INSERT INTO ot_historique_import (id, colonnes, nb, fichier, importe_par, importe_le)
+  VALUES (1, p_colonnes, v_nb, btrim(coalesce(p_fichier, '')), btrim(coalesce(p_par, '')), now())
+  ON CONFLICT (id) DO UPDATE SET colonnes = EXCLUDED.colonnes, nb = EXCLUDED.nb, fichier = EXCLUDED.fichier,
+                                 importe_par = EXCLUDED.importe_par, importe_le = EXCLUDED.importe_le;
+  RETURN jsonb_build_object('ok', true, 'nb', v_nb,
+    'prochain', to_char(now() AT TIME ZONE 'Europe/Paris', 'YYMMDD') || '-' || lpad(_ot_prochain_numero()::text, 4, '0'));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_mode()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object('essai', _ot_parametre('essai'));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_tableau_bord()
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH toutes AS (
+    SELECT annee, mois, total, 'excel' AS source FROM ot_historique
+     WHERE annee BETWEEN 2000 AND 2100 AND mois BETWEEN 1 AND 12
+    UNION ALL
+    SELECT extract(year FROM _ot_fiche_date(f))::integer, extract(month FROM _ot_fiche_date(f))::integer,
+           f.total_ht, 'pwa'
+      FROM _ot_fiches_hors_excel() f
+  ), parmois AS (
+    SELECT annee, mois, count(*) AS nb, coalesce(sum(total), 0) AS total,
+           count(*) FILTER (WHERE source = 'pwa') AS nb_pwa
+      FROM toutes GROUP BY annee, mois
+  )
+  SELECT jsonb_build_object(
+    'mois', coalesce((SELECT jsonb_agg(jsonb_build_object('annee', annee, 'mois', mois, 'nb', nb,
+                                                          'total', total, 'nb_pwa', nb_pwa)
+                                       ORDER BY annee, mois) FROM parmois), '[]'::jsonb),
+    'import', (SELECT jsonb_build_object('nb', nb, 'fichier', fichier, 'par', importe_par, 'le', importe_le)
+                 FROM ot_historique_import WHERE id = 1),
+    'a_reporter', (SELECT count(*) FROM _ot_fiches_hors_excel()),
+    'essai', _ot_parametre('essai'),
+    'prochain', to_char(now() AT TIME ZONE 'Europe/Paris', 'YYMMDD') || '-' || lpad(_ot_prochain_numero()::text, 4, '0'));
 $function$;
 
 CREATE OR REPLACE FUNCTION public.ot_tarif_modifier(p_type text, p_cle text, p_valeurs jsonb, p_par text)
