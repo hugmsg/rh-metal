@@ -517,6 +517,30 @@ AS $function$
         FROM _ot_fiches_hors_excel() f), '[]'::jsonb));
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_historique_ajouter(p_numeros text[])
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_nb integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('ot_numero'));
+  INSERT INTO ot_historique (numero, code_planning, numero_module, agence, type_lettre, date_fin, annee, mois, total)
+  SELECT f.numero_ot, f.code_planning, f.numero_module,
+         coalesce(nullif(f.documents->>'agence', ''), f.agence),
+         upper(left(btrim(coalesce(f.type_module, '')), 1)),
+         _ot_fiche_date(f),
+         extract(year FROM _ot_fiche_date(f))::integer, extract(month FROM _ot_fiche_date(f))::integer,
+         f.total_ht
+    FROM _ot_fiches_hors_excel() f
+   WHERE f.numero_ot = ANY (coalesce(p_numeros, '{}'::text[]));
+  GET DIAGNOSTICS v_nb = ROW_COUNT;
+  RETURN jsonb_build_object('ok', true, 'nb', v_nb);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_historique_importer(p_lignes jsonb, p_colonnes jsonb, p_par text, p_fichier text)
  RETURNS jsonb
  LANGUAGE plpgsql
