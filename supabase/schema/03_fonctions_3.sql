@@ -525,10 +525,11 @@ AS $function$
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'id', f.id, 'code_planning', f.code_planning, 'numero_module', f.numero_module,
       'agence', f.agence, 'type_module', f.type_module, 'numero_ot', f.numero_ot, 'statut', f.statut,
-      'commentaire', f.commentaire,
+      'commentaire', f.commentaire, 'modele', f.modele,
       'total_ht', coalesce(f.total_ht, (_ot_totaux(f.id)->>'total')::numeric),
       'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
       'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
+      'stock_le', _stock_iso(f.stock_le),
       'documents', f.documents,
       'nb_lignes', (SELECT count(*) FROM ot_lignes l WHERE l.fiche_id = f.id AND coalesce(l.quantite, 0) > 0))
       ORDER BY f.modifie_le DESC, f.id DESC), '[]'::jsonb)
