@@ -626,6 +626,48 @@ AS $function$
   SELECT jsonb_build_object('essai', _ot_parametre('essai'));
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_sans_ot_definir(p_code text, p_motif text, p_detail text, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_code  text := upper(btrim(coalesce(p_code, '')));
+  v_motif text := nullif(btrim(coalesce(p_motif, '')), '');
+BEGIN
+  IF v_code = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Code planning manquant');
+  END IF;
+  IF v_motif IS NULL THEN
+    DELETE FROM ot_sans_ot WHERE code_planning = v_code;
+    RETURN jsonb_build_object('ok', true, 'sans_ot', null);
+  END IF;
+  IF v_motif NOT IN ('vente', 'epave', 'autre') THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Motif inconnu');
+  END IF;
+  IF EXISTS (SELECT 1 FROM ot_fiches WHERE code_planning = v_code AND statut IN ('brouillon', 'a_valider', 'validee', 'envoyee')) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Ce module a déjà une fiche d''opérations : annulez-la d''abord');
+  END IF;
+  INSERT INTO ot_sans_ot (code_planning, motif, detail, par)
+  VALUES (v_code, v_motif, btrim(coalesce(p_detail, '')), btrim(coalesce(p_par, '')))
+  ON CONFLICT (code_planning) DO UPDATE SET motif = EXCLUDED.motif, detail = EXCLUDED.detail, par = EXCLUDED.par, le = now();
+  RETURN jsonb_build_object('ok', true, 'sans_ot', (SELECT jsonb_build_object('code_planning', s.code_planning, 'motif', s.motif,
+           'detail', s.detail, 'par', s.par, 'le', _stock_iso(s.le)) FROM ot_sans_ot s WHERE s.code_planning = v_code));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.ot_sans_ot_liste()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('code_planning', s.code_planning, 'motif', s.motif, 'detail', s.detail,
+                                               'par', s.par, 'le', _stock_iso(s.le)) ORDER BY s.le DESC), '[]'::jsonb)
+    FROM ot_sans_ot s;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_tableau_bord()
  RETURNS jsonb
  LANGUAGE sql
