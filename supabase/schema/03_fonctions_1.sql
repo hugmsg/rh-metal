@@ -217,6 +217,48 @@ AS $function$
   SELECT round(ceil(x * 2 - 0.000001) / 2, 2);
 $function$;
 
+CREATE OR REPLACE FUNCTION public._ot_container_convertir(p_fiche bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_paire record;
+  v_g numeric;
+  v_d numeric;
+  v_n numeric;
+  v_ordre integer;
+BEGIN
+  -- Planches neuves 212 → forfait N (mêmes quantités)
+  UPDATE ot_lignes l
+     SET ref = 'N', libelle = coalesce((SELECT f.intitule FROM ot_forfaits f WHERE f.lettre = 'N'), 'Planche pour container')
+   WHERE l.fiche_id = p_fiche AND l.ref = '212' AND NOT l.occasion AND l.mo_saisi IS NULL AND coalesce(l.quantite, 0) > 0;
+
+  -- Paires de battants → forfait portes complètes
+  FOR v_paire IN SELECT * FROM (VALUES ('304234', '304233', 'O'), ('304187', '304188', 'S')) AS x(g, d, lettre) LOOP
+    SELECT coalesce(sum(quantite), 0) INTO v_g FROM ot_lignes
+     WHERE fiche_id = p_fiche AND ref = v_paire.g AND NOT occasion AND mo_saisi IS NULL AND coalesce(quantite, 0) > 0;
+    SELECT coalesce(sum(quantite), 0) INTO v_d FROM ot_lignes
+     WHERE fiche_id = p_fiche AND ref = v_paire.d AND NOT occasion AND mo_saisi IS NULL AND coalesce(quantite, 0) > 0;
+    v_n := floor(least(v_g, v_d));
+    CONTINUE WHEN v_n < 1;
+    SELECT min(ordre) INTO v_ordre FROM ot_lignes
+     WHERE fiche_id = p_fiche AND ref IN (v_paire.g, v_paire.d) AND NOT occasion AND mo_saisi IS NULL AND coalesce(quantite, 0) > 0;
+    DELETE FROM ot_lignes
+     WHERE fiche_id = p_fiche AND ref IN (v_paire.g, v_paire.d) AND NOT occasion AND mo_saisi IS NULL AND coalesce(quantite, 0) > 0;
+    INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+    SELECT p_fiche, v_ordre, 'pieces', v_paire.lettre, coalesce(f.intitule, v_paire.lettre), v_n, 'u', 'atelier'
+      FROM (SELECT 1) s LEFT JOIN ot_forfaits f ON f.lettre = v_paire.lettre;
+    -- Battant(s) en plus de la paire : gardés tels quels
+    INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+    SELECT p_fiche, v_ordre, 'pieces', x.ref, coalesce(r.description, x.ref), x.reste, 'u', 'atelier'
+      FROM (VALUES (v_paire.g, v_g - v_n), (v_paire.d, v_d - v_n)) AS x(ref, reste)
+      LEFT JOIN ot_references r ON r.ref = x.ref
+     WHERE x.reste > 0;
+  END LOOP;
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._ot_fiche_date(f ot_fiches)
  RETURNS date
  LANGUAGE sql
@@ -237,6 +279,7 @@ AS $function$
     'id', f.id, 'code_planning', f.code_planning, 'numero_module', f.numero_module,
     'agence', f.agence, 'type_module', f.type_module, 'commentaire', f.commentaire,
     'numero_ot', f.numero_ot, 'statut', f.statut, 'notes', f.notes, 'total_ht', f.total_ht,
+    'modele', f.modele,
     'saisi_par', f.saisi_par, 'cree_le', _stock_iso(f.cree_le), 'modifie_le', _stock_iso(f.modifie_le),
     'version', _stock_iso(f.modifie_le),
     'valide_par', f.valide_par, 'valide_le', _stock_iso(f.valide_le), 'envoye_le', _stock_iso(f.envoye_le),
@@ -245,6 +288,39 @@ AS $function$
     'totaux', _ot_totaux(f.id),
     'lignes', coalesce((SELECT jsonb_agg(to_jsonb(c)) FROM _ot_lignes_calcul(f.id) c), '[]'::jsonb))
     FROM ot_fiches f WHERE f.id = p_id;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._ot_fiche_office(p_fiche bigint, p_modele text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_base integer;
+BEGIN
+  SELECT coalesce(max(ordre), 0) INTO v_base FROM ot_lignes WHERE fiche_id = p_fiche;
+  IF p_modele = 'container' THEN
+    INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+    SELECT p_fiche, v_base + o.n, 'pieces', o.ref, coalesce(f.intitule, r.description, o.ref), o.q, 'u', 'office'
+      FROM (VALUES (1, 'L', 1), (2, 'P', 1), (3, '600', 2)) AS o(n, ref, q)
+      LEFT JOIN ot_forfaits f ON f.lettre = o.ref
+      LEFT JOIN ot_references r ON r.ref = o.ref
+     WHERE NOT EXISTS (SELECT 1 FROM ot_lignes l WHERE l.fiche_id = p_fiche AND l.ref = o.ref);
+  ELSE
+    INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+    SELECT p_fiche, v_base + o.n, 'diverses', o.ref, coalesce(f.intitule, r.description, o.ref), 1, 'u', 'office'
+      FROM (VALUES (1, 'E'), (2, 'SON-0074'), (3, 'SON-0072')) AS o(n, ref)
+      LEFT JOIN ot_forfaits f ON f.lettre = o.ref
+      LEFT JOIN ot_references r ON r.ref = o.ref
+     WHERE NOT EXISTS (SELECT 1 FROM ot_lignes l WHERE l.fiche_id = p_fiche AND l.ref = o.ref);
+    -- Temps passé fréquents, prêts à remplir (sans quantité)
+    INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
+    SELECT p_fiche, v_base + o.n, 'travaux', o.ref, o.lib, NULL, o.unite, 'atelier'
+      FROM (VALUES (4, 'SON-0101', 'Enlever silicone et goudron supplémentaire', 'min'),
+                   (5, 'SON-0102', 'Coupe panneaux', 'h')) AS o(n, ref, lib, unite)
+     WHERE NOT EXISTS (SELECT 1 FROM ot_lignes l WHERE l.fiche_id = p_fiche AND l.ref = o.ref);
+  END IF;
+END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public._ot_fiches_hors_excel()

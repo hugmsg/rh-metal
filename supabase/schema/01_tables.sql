@@ -207,7 +207,9 @@ CREATE TABLE public.ot_fiches (
   envoye_le timestamp with time zone,
   documents jsonb,
   stock_le timestamp with time zone,
+  modele text DEFAULT 'module'::text NOT NULL,
   CONSTRAINT ot_fiches_code_planning_check CHECK ((btrim(code_planning) <> ''::text)),
+  CONSTRAINT ot_fiches_modele_check CHECK ((modele = ANY (ARRAY['module'::text, 'container'::text]))),
   CONSTRAINT ot_fiches_numero_ot_key UNIQUE (numero_ot),
   CONSTRAINT ot_fiches_pkey PRIMARY KEY (id),
   CONSTRAINT ot_fiches_statut_check CHECK ((statut = ANY (ARRAY['brouillon'::text, 'a_valider'::text, 'validee'::text, 'envoyee'::text, 'annulee'::text])))

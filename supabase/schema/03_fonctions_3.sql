@@ -297,6 +297,55 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_fiche_modele(p_id bigint, p_modele text, p_par text, p_version text, p_admin boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_f ot_fiches;
+BEGIN
+  IF p_modele NOT IN ('module', 'container') THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Modèle inconnu');
+  END IF;
+  SELECT * INTO v_f FROM ot_fiches WHERE id = p_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fiche introuvable');
+  END IF;
+  IF _stock_iso(v_f.modifie_le) IS DISTINCT FROM p_version THEN
+    RETURN jsonb_build_object('ok', false, 'conflit', true,
+                              'message', 'La fiche a été modifiée par ailleurs : rechargez-la');
+  END IF;
+  IF NOT (v_f.statut = 'brouillon' OR (v_f.statut = 'a_valider' AND p_admin)) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fiche non modifiable (' || v_f.statut || ')');
+  END IF;
+  IF v_f.modele = p_modele THEN
+    RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true);
+  END IF;
+
+  -- Lignes d'office de l'ancien modèle restées telles quelles (ou mises à zéro) ; lignes prêtes restées vides.
+  IF v_f.modele = 'module' THEN
+    DELETE FROM ot_lignes WHERE fiche_id = p_id AND origine = 'office' AND mo_saisi IS NULL
+       AND ref IN ('E', 'SON-0074', 'SON-0072') AND (quantite IS NULL OR quantite IN (0, 1));
+    DELETE FROM ot_lignes WHERE fiche_id = p_id AND bloc = 'travaux' AND quantite IS NULL
+       AND ref IN ('SON-0101', 'SON-0102');
+  ELSE
+    DELETE FROM ot_lignes WHERE fiche_id = p_id AND origine = 'office' AND mo_saisi IS NULL
+       AND ((ref IN ('L', 'P') AND (quantite IS NULL OR quantite IN (0, 1)))
+         OR (ref = '600' AND (quantite IS NULL OR quantite IN (0, 2))));
+  END IF;
+
+  PERFORM _ot_fiche_office(p_id, p_modele);
+  IF p_modele = 'container' THEN
+    PERFORM _ot_container_convertir(p_id);
+  END IF;
+
+  UPDATE ot_fiches SET modele = p_modele, modifie_le = clock_timestamp() WHERE id = p_id;
+  RETURN _ot_fiche_json(p_id) || jsonb_build_object('ok', true);
+END;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_fiche_ouvrir(p_code text, p_module jsonb, p_par text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -304,8 +353,10 @@ CREATE OR REPLACE FUNCTION public.ot_fiche_ouvrir(p_code text, p_module jsonb, p
  SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_code text := upper(btrim(coalesce(p_code, '')));
-  v_id   bigint;
+  v_code   text := upper(btrim(coalesce(p_code, '')));
+  v_type   text := btrim(coalesce(p_module->>'type_module', ''));
+  v_modele text := CASE WHEN v_type ~* '^LC' THEN 'container' ELSE 'module' END;
+  v_id     bigint;
 BEGIN
   IF v_code = '' THEN
     RETURN jsonb_build_object('ok', false, 'message', 'Code planning manquant');
@@ -319,24 +370,10 @@ BEGIN
     RETURN _ot_fiche_json(v_id) || jsonb_build_object('ok', true, 'existante', true);
   END IF;
 
-  INSERT INTO ot_fiches (code_planning, numero_module, agence, type_module, commentaire, saisi_par)
+  INSERT INTO ot_fiches (code_planning, numero_module, agence, type_module, commentaire, saisi_par, modele)
   VALUES (v_code, btrim(coalesce(p_module->>'numero_module', '')), btrim(coalesce(p_module->>'agence', '')),
-          btrim(coalesce(p_module->>'type_module', '')), btrim(coalesce(p_module->>'commentaire', '')),
-          btrim(coalesce(p_par, '')))
+          v_type, btrim(coalesce(p_module->>'commentaire', '')), btrim(coalesce(p_par, '')), v_modele)
   RETURNING id INTO v_id;
-
-  -- Lignes d'office (modèle « OPERATIONS (2) std » de la matrice) : le bureau retire ce qui ne s'applique pas.
-  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
-  SELECT v_id, o.ordre, 'diverses', o.ref,
-         coalesce(f.intitule, r.description, o.ref), 1, 'u', 'office'
-    FROM (VALUES (1000, 'E'), (1001, 'SON-0074'), (1002, 'SON-0072')) AS o(ordre, ref)
-    LEFT JOIN ot_forfaits f ON f.lettre = o.ref
-    LEFT JOIN ot_references r ON r.ref = o.ref;
-
-  -- Temps passé fréquents, prêts à remplir (sans quantité).
-  INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
-  VALUES (v_id, 2000, 'travaux', 'SON-0101', 'Enlever silicone et goudron supplémentaire', NULL, 'min', 'atelier'),
-         (v_id, 2001, 'travaux', 'SON-0102', 'Coupe panneaux', NULL, 'h', 'atelier');
 
   -- Poses 🔧 déjà enregistrées dans le stock pour ce code planning.
   INSERT INTO ot_lignes (fiche_id, ordre, bloc, ref, libelle, quantite, unite, origine)
@@ -349,6 +386,12 @@ BEGIN
    WHERE m.type = 'sortie' AND m.note ~ ('^\[Pose ' || v_code || '\]')
    GROUP BY m.ref
   HAVING sum(m.quantite) > 0;
+
+  -- Lignes d'office du modèle (le bureau retire ce qui ne s'applique pas) ; poses converties en forfaits (container).
+  PERFORM _ot_fiche_office(v_id, v_modele);
+  IF v_modele = 'container' THEN
+    PERFORM _ot_container_convertir(v_id);
+  END IF;
 
   RETURN _ot_fiche_json(v_id) || jsonb_build_object('ok', true, 'existante', false);
 END;
