@@ -585,6 +585,20 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.ot_historique_codes()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_object_agg(c.code, c.numero), '{}'::jsonb)
+    FROM (SELECT DISTINCT ON (upper(btrim(h.code_planning))) upper(btrim(h.code_planning)) AS code, h.numero
+            FROM ot_historique h
+           WHERE btrim(coalesce(h.code_planning, '')) <> ''
+             AND h.annee >= extract(year FROM now())::integer - 1
+           ORDER BY upper(btrim(h.code_planning)), h.numero DESC) c;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.ot_historique_importer(p_lignes jsonb, p_colonnes jsonb, p_par text, p_fichier text)
  RETURNS jsonb
  LANGUAGE plpgsql
