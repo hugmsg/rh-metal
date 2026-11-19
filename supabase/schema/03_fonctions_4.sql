@@ -387,8 +387,10 @@ AS $function$
   WITH tout AS (
     SELECT a.*, CASE WHEN e.ref IS NULL THEN NULL
                      WHEN e.inv_qty IS NOT NULL THEN e.inv_qty + e.delta
-                     ELSE e.delta END AS qte
+                     ELSE e.delta END AS qte,
+           f.delai_appro AS delai_fourn
       FROM stock_articles a LEFT JOIN _stock_etat() e ON e.ref = a.ref
+      LEFT JOIN stock_fournisseurs f ON f.fournisseur = btrim(a.fournisseur)
   ), lignes AS (
     SELECT * FROM tout WHERE actif OR coalesce(qte, 0) <> 0
   )
@@ -397,6 +399,7 @@ AS $function$
         'ref', l.ref, 'description', l.description, 'famille', l.famille,
         'fournisseur', l.fournisseur, 'refFourn', l.ref_fourn,
         'prixHT', nullif(l.prix_ht, 0), 'qte', l.qte, 'seuil', l.seuil,
+        'delaiRef', l.delai_appro, 'delaiFourn', l.delai_fourn, 'delai', coalesce(l.delai_appro, l.delai_fourn),
         'stockStatus', CASE WHEN l.qte IS NOT NULL AND l.seuil IS NOT NULL
                             THEN CASE WHEN l.qte >= l.seuil THEN 'ok' ELSE 'low' END
                             WHEN l.qte IS NOT NULL THEN 'ok' ELSE 'unknown' END)
@@ -405,6 +408,47 @@ AS $function$
     'count', (SELECT count(*) FROM lignes),
     'familles', coalesce((SELECT jsonb_agg(f ORDER BY f COLLATE "C")
                             FROM (SELECT DISTINCT famille AS f FROM lignes WHERE famille <> '') x), '[]'::jsonb));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_definir_delai(p_ref text, p_delai integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_delai IS NOT NULL AND (p_delai < 0 OR p_delai > 365) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Délai invalide (0 à 365 jours)');
+  END IF;
+  UPDATE stock_articles SET delai_appro = p_delai, date_modif = current_date WHERE ref = btrim(coalesce(p_ref, ''));
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Référence introuvable : ' || btrim(coalesce(p_ref, '')));
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'ref', btrim(p_ref), 'delai', p_delai);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.stock_definir_delai_fournisseur(p_fournisseur text, p_delai integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_f text := btrim(coalesce(p_fournisseur, ''));
+BEGIN
+  IF v_f = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Fournisseur manquant');
+  END IF;
+  IF p_delai IS NULL THEN
+    DELETE FROM stock_fournisseurs WHERE fournisseur = v_f;
+  ELSIF p_delai < 0 OR p_delai > 365 THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'Délai invalide (0 à 365 jours)');
+  ELSE
+    INSERT INTO stock_fournisseurs (fournisseur, delai_appro) VALUES (v_f, p_delai)
+    ON CONFLICT (fournisseur) DO UPDATE SET delai_appro = EXCLUDED.delai_appro, date_modif = current_date;
+  END IF;
+  RETURN jsonb_build_object('ok', true, 'fournisseur', v_f, 'delai', p_delai);
+END;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.stock_definir_favoris(p_refs jsonb)
