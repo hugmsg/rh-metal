@@ -84,6 +84,115 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public.commande_annuler(p_id bigint, p_motif text, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_row commandes_loxam;
+BEGIN
+  IF btrim(coalesce(p_motif, '')) = '' THEN RETURN jsonb_build_object('ok', false, 'message', 'Motif obligatoire'); END IF;
+  UPDATE commandes_loxam
+     SET statut = 'annulee', motif_annulation = btrim(p_motif), annule_par = nullif(btrim(p_par), ''), annule_le = now()
+   WHERE id = p_id AND statut <> 'annulee'
+  RETURNING * INTO v_row;
+  IF v_row.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'message', 'Commande introuvable ou déjà annulée'); END IF;
+  RETURN jsonb_build_object('ok', true, 'commande', to_jsonb(v_row));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.commande_enregistrer(p jsonb, p_par text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_num text := btrim(coalesce(p->>'numero', ''));
+  v_row commandes_loxam;
+  v_d   date;
+BEGIN
+  IF v_num = '' OR v_num !~ '^[0-9A-Za-z-]{4,20}$' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'N° de commande invalide : « ' || v_num || ' »');
+  END IF;
+  IF EXISTS (SELECT 1 FROM commandes_loxam WHERE numero = v_num AND statut <> 'annulee') THEN
+    RETURN jsonb_build_object('ok', false, 'deja', true, 'message', 'Commande n° ' || v_num || ' déjà enregistrée');
+  END IF;
+  INSERT INTO commandes_loxam (numero, date_commande, quantite, libelle, total_ht, affaire, ref_module, destination,
+                               client, adresse, date_souhaitee, code_planning, ot_numero, ot_total, verif_prix,
+                               source, pdf, saisi_par)
+  VALUES (v_num,
+          nullif(p->>'date_commande', '')::date,
+          nullif(p->>'quantite', '')::numeric,
+          nullif(btrim(p->>'libelle'), ''),
+          nullif(p->>'total_ht', '')::numeric,
+          nullif(btrim(p->>'affaire'), ''),
+          nullif(btrim(p->>'ref_module'), ''),
+          nullif(btrim(p->>'destination'), ''),
+          nullif(btrim(p->>'client'), ''),
+          nullif(btrim(p->>'adresse'), ''),
+          nullif(p->>'date_souhaitee', '')::date,
+          nullif(upper(btrim(p->>'code_planning')), ''),
+          nullif(btrim(p->>'ot_numero'), ''),
+          nullif(p->>'ot_total', '')::numeric,
+          nullif(btrim(p->>'verif_prix'), ''),
+          CASE WHEN p->>'source' IN ('texte', 'ocr', 'manuel') THEN p->>'source' ELSE 'texte' END,
+          CASE WHEN jsonb_typeof(p->'pdf') = 'object' THEN p->'pdf' END,
+          nullif(btrim(p_par), ''))
+  RETURNING * INTO v_row;
+  RETURN jsonb_build_object('ok', true, 'commande', to_jsonb(v_row));
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.commandes_ebp_marquer(p_ids bigint[], p_par text)
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  WITH m AS (
+    UPDATE commandes_loxam SET ebp_le = now(), ebp_par = nullif(btrim(p_par), '')
+     WHERE id = ANY (coalesce(p_ids, '{}'::bigint[])) AND statut <> 'annulee'
+    RETURNING id)
+  SELECT jsonb_build_object('ok', true, 'nb', (SELECT count(*) FROM m));
+$function$;
+
+CREATE OR REPLACE FUNCTION public.commandes_liste()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY c.id DESC), '[]'::jsonb)
+    FROM commandes_loxam c
+   WHERE (c.statut <> 'annulee' AND c.ebp_le IS NULL)
+      OR c.id IN (SELECT id FROM commandes_loxam ORDER BY id DESC LIMIT 200);
+$function$;
+
+CREATE OR REPLACE FUNCTION public.commandes_verifier(p_lignes jsonb)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'numero', l.numero,
+           'deja', (SELECT jsonb_build_object('id', c.id, 'code', c.code_planning, 'le', c.cree_le, 'par', c.saisi_par)
+                      FROM commandes_loxam c WHERE c.numero = l.numero AND c.statut <> 'annulee' LIMIT 1),
+           'autres', (SELECT coalesce(jsonb_agg(c.numero ORDER BY c.id), '[]'::jsonb)
+                        FROM commandes_loxam c
+                       WHERE l.code <> '' AND upper(c.code_planning) = upper(l.code)
+                         AND c.statut <> 'annulee' AND c.numero <> l.numero),
+           'ot', public._commande_ot(l.code, l.ref)
+         ) ORDER BY l.ord), '[]'::jsonb)
+    FROM (SELECT ord,
+                 btrim(coalesce(e->>'numero', '')) AS numero,
+                 btrim(coalesce(e->>'ref_module', '')) AS ref,
+                 btrim(coalesce(e->>'code', '')) AS code
+            FROM jsonb_array_elements(coalesce(p_lignes, '[]'::jsonb)) WITH ORDINALITY AS t(e, ord)) l;
+$function$;
+
 CREATE OR REPLACE FUNCTION public.creer_externe_rh(p_nom text, p_prenom text, p_notes text, p_adresse text, p_telephone_perso text, p_email_perso text, p_motif text)
  RETURNS jsonb
  LANGUAGE plpgsql

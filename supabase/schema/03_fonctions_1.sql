@@ -42,6 +42,40 @@ AS $function$
   SELECT coalesce((SELECT prenom FROM public.employes WHERE auth_user_id = auth.uid() LIMIT 1), 'admin');
 $function$;
 
+CREATE OR REPLACE FUNCTION public._commande_ot(p_code text, p_ref text)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT x.j FROM (
+    SELECT 1 AS rang, f.valide_le AS quand,
+           jsonb_build_object('numero', f.numero_ot, 'total', f.total_ht, 'code', upper(btrim(f.code_planning)),
+                              'source', 'fiche', 'statut', f.statut) AS j
+      FROM ot_fiches f
+     WHERE f.statut IN ('validee', 'envoyee')
+       AND ((p_code <> '' AND upper(btrim(f.code_planning)) = upper(p_code))
+         OR (p_code = '' AND p_ref <> '' AND upper(btrim(f.numero_module)) = upper(p_ref)))
+    UNION ALL
+    SELECT 2, h.date_fin::timestamptz,
+           jsonb_build_object('numero', h.numero, 'total', h.total, 'code', upper(btrim(h.code_planning)),
+                              'source', 'historique', 'statut', 'historique')
+      FROM ot_historique h
+     WHERE (p_code <> '' AND upper(btrim(h.code_planning)) = upper(p_code))
+        OR (p_code = '' AND p_ref <> '' AND upper(btrim(h.numero_module)) = upper(p_ref))
+    UNION ALL
+    SELECT 3, f.modifie_le,
+           jsonb_build_object('numero', f.numero_ot, 'total', f.total_ht, 'code', upper(btrim(f.code_planning)),
+                              'source', 'fiche', 'statut', f.statut)
+      FROM ot_fiches f
+     WHERE f.statut = 'a_valider'
+       AND ((p_code <> '' AND upper(btrim(f.code_planning)) = upper(p_code))
+         OR (p_code = '' AND p_ref <> '' AND upper(btrim(f.numero_module)) = upper(p_ref)))
+  ) x
+  ORDER BY x.rang, x.quand DESC NULLS LAST
+  LIMIT 1;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._conge_label(p_type text)
  RETURNS text
  LANGUAGE sql

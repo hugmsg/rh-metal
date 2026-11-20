@@ -57,6 +57,8 @@ CREATE VIEW public.pointages_today_vue AS
   WHERE ((((p.horodatage AT TIME ZONE 'Europe/Paris'::text))::date = CURRENT_DATE) AND _est_admin_rh())
   ORDER BY p.horodatage DESC;
 
+CREATE INDEX commandes_loxam_code ON public.commandes_loxam USING btree (upper(code_planning));
+CREATE UNIQUE INDEX commandes_loxam_numero_actif ON public.commandes_loxam USING btree (numero) WHERE (statut <> 'annulee'::text);
 CREATE INDEX connexion_pwa_essais_compte_idx ON public.connexion_pwa_essais USING btree (compte_id, at DESC);
 CREATE INDEX contrats_employe_id_idx ON public.contrats USING btree (employe_id, date_debut DESC);
 CREATE UNIQUE INDEX employes_nom_prenom_unique ON public.employes USING btree (nom, prenom);

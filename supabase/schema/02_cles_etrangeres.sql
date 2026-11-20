@@ -16,6 +16,7 @@ ALTER TABLE public.rh_journal ADD CONSTRAINT rh_journal_employe_id_fkey FOREIGN 
 ALTER TABLE public.semaines_validees ADD CONSTRAINT semaines_validees_employe_id_fkey FOREIGN KEY (employe_id) REFERENCES employes(id) ON DELETE CASCADE;
 ALTER TABLE public.voyages_internes ADD CONSTRAINT voyages_internes_numero_lv_fkey FOREIGN KEY (numero_lv) REFERENCES voyages(numero_lv) ON DELETE CASCADE;
 
+ALTER SEQUENCE public.commandes_loxam_id_seq OWNED BY public.commandes_loxam.id;
 ALTER SEQUENCE public.connexion_pwa_essais_id_seq OWNED BY public.connexion_pwa_essais.id;
 ALTER SEQUENCE public.pin_essais_id_seq OWNED BY public.pin_essais.id;
 ALTER SEQUENCE public.rh_journal_id_seq OWNED BY public.rh_journal.id;
