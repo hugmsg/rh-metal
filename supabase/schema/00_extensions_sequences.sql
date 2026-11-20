@@ -6,5 +6,6 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
 CREATE SEQUENCE public.commandes_loxam_id_seq AS bigint START WITH 1 INCREMENT BY 1;
 CREATE SEQUENCE public.connexion_pwa_essais_id_seq AS bigint START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE public.expeditions_loxam_id_seq AS bigint START WITH 1 INCREMENT BY 1;
 CREATE SEQUENCE public.pin_essais_id_seq AS bigint START WITH 1 INCREMENT BY 1;
 CREATE SEQUENCE public.rh_journal_id_seq AS bigint START WITH 1 INCREMENT BY 1;

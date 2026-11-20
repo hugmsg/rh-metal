@@ -153,6 +153,31 @@ CREATE TABLE public.employes (
 );
 ALTER TABLE public.employes ENABLE ROW LEVEL SECURITY;
 
+CREATE TABLE public.expeditions_loxam (
+  id bigint DEFAULT nextval('expeditions_loxam_id_seq'::regclass) NOT NULL,
+  numero text NOT NULL,
+  date_commande date,
+  agence text,
+  destination text,
+  adresse text,
+  a_partir_du date,
+  bt text,
+  modules jsonb DEFAULT '[]'::jsonb NOT NULL,
+  source text DEFAULT 'ocr'::text NOT NULL,
+  pdf jsonb,
+  statut text DEFAULT 'validee'::text NOT NULL,
+  motif_annulation text,
+  saisi_par text,
+  cree_le timestamp with time zone DEFAULT now() NOT NULL,
+  modifie_par text,
+  modifie_le timestamp with time zone,
+  annule_par text,
+  annule_le timestamp with time zone,
+  CONSTRAINT expeditions_loxam_pkey PRIMARY KEY (id),
+  CONSTRAINT expeditions_loxam_source_check CHECK ((source = ANY (ARRAY['texte'::text, 'ocr'::text, 'manuel'::text]))),
+  CONSTRAINT expeditions_loxam_statut_check CHECK ((statut = ANY (ARRAY['validee'::text, 'annulee'::text])))
+);
+ALTER TABLE public.expeditions_loxam ENABLE ROW LEVEL SECURITY;
 CREATE TABLE public.heures_corrections (
   id uuid DEFAULT gen_random_uuid() NOT NULL,
   employe_id uuid NOT NULL,

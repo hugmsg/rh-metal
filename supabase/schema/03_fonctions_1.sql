@@ -196,6 +196,21 @@ BEGIN
 END;
 $function$;
 
+CREATE OR REPLACE FUNCTION public._expedition_modules(p jsonb)
+ RETURNS jsonb
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT coalesce(jsonb_agg(jsonb_build_object('ref', x.ref, 'code', x.code) ORDER BY x.ord), '[]'::jsonb)
+    FROM (SELECT DISTINCT ON (upper(coalesce(nullif(code, ''), ref))) ref, code, ord
+            FROM (SELECT btrim(coalesce(e->>'ref', '')) AS ref, upper(btrim(coalesce(e->>'code', ''))) AS code, ord
+                    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p) = 'array' THEN p ELSE '[]'::jsonb END)
+                         WITH ORDINALITY AS t(e, ord)) m
+           WHERE ref <> '' OR code <> ''
+           ORDER BY upper(coalesce(nullif(code, ''), ref)), ord) x;
+$function$;
+
 CREATE OR REPLACE FUNCTION public._fmt_jour(p_date date)
  RETURNS text
  LANGUAGE sql

@@ -18,5 +18,6 @@ ALTER TABLE public.voyages_internes ADD CONSTRAINT voyages_internes_numero_lv_fk
 
 ALTER SEQUENCE public.commandes_loxam_id_seq OWNED BY public.commandes_loxam.id;
 ALTER SEQUENCE public.connexion_pwa_essais_id_seq OWNED BY public.connexion_pwa_essais.id;
+ALTER SEQUENCE public.expeditions_loxam_id_seq OWNED BY public.expeditions_loxam.id;
 ALTER SEQUENCE public.pin_essais_id_seq OWNED BY public.pin_essais.id;
 ALTER SEQUENCE public.rh_journal_id_seq OWNED BY public.rh_journal.id;
