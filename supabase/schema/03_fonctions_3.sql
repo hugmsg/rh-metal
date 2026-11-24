@@ -364,8 +364,8 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('ot_fiche:' || v_code));
 
   SELECT id INTO v_id FROM ot_fiches
-   WHERE code_planning = v_code AND statut IN ('brouillon', 'a_valider', 'validee')
-   ORDER BY cree_le DESC LIMIT 1;
+   WHERE code_planning = v_code AND statut IN ('brouillon', 'a_valider', 'validee', 'envoyee')
+   ORDER BY (statut = 'envoyee'), cree_le DESC LIMIT 1;
   IF v_id IS NOT NULL THEN
     RETURN _ot_fiche_json(v_id) || jsonb_build_object('ok', true, 'existante', true);
   END IF;
