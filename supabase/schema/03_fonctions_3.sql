@@ -78,7 +78,8 @@ BEGIN
     SELECT v.numero_lv, v.type, v.date_creation, v.destination, v.destination_adresse,
            v.poids, v.ml, v.grutage, v.commentaire, v.marchandises_desc, v.livraison_prevue, v.parti, v.parti_le,
            i.doc_annexe, i.commande, i.conducteur, i.immat_moteur, i.immat_semi, i.expediteur, i.convoi, i.pdf_url,
-           false AS annulee, NULL::timestamptz AS annulee_le, NULL::text AS annulee_par, NULL::text AS annulation_motif, NULL::text AS remplacee_par
+           false AS annulee, NULL::timestamptz AS annulee_le, NULL::text AS annulee_par, NULL::text AS annulation_motif, NULL::text AS remplacee_par,
+           v.livraison_type, v.livraison_min, v.livraison_max
     FROM voyages v
     LEFT JOIN voyages_internes i ON i.numero_lv = v.numero_lv
     WHERE v.parti = false
@@ -87,7 +88,8 @@ BEGIN
     SELECT v.numero_lv, v.type, v.date_creation, v.destination, v.destination_adresse,
            v.poids, v.ml, v.grutage, v.commentaire, v.marchandises_desc, v.livraison_prevue, v.parti, v.parti_le,
            i.doc_annexe, i.commande, i.conducteur, i.immat_moteur, i.immat_semi, i.expediteur, i.convoi, i.pdf_url,
-           false AS annulee, NULL::timestamptz AS annulee_le, NULL::text AS annulee_par, NULL::text AS annulation_motif, NULL::text AS remplacee_par
+           false AS annulee, NULL::timestamptz AS annulee_le, NULL::text AS annulee_par, NULL::text AS annulation_motif, NULL::text AS remplacee_par,
+           v.livraison_type, v.livraison_min, v.livraison_max
     FROM voyages v
     LEFT JOIN voyages_internes i ON i.numero_lv = v.numero_lv
     WHERE v.parti = true
@@ -98,7 +100,8 @@ BEGIN
     SELECT a.numero_lv, a.type, a.date_creation, a.destination, a.destination_adresse,
            a.poids, a.ml, a.grutage, a.commentaire, a.marchandises_desc, a.livraison_prevue, coalesce(a.parti, false), a.parti_le,
            a.doc_annexe, a.commande, a.conducteur, a.immat_moteur, a.immat_semi, a.expediteur, a.convoi, a.pdf_url,
-           true, a.annulee_le, a.annulee_par, a.motif, a.remplacee_par
+           true, a.annulee_le, a.annulee_par, a.motif, a.remplacee_par,
+           a.livraison_type, a.livraison_min, a.livraison_max
     FROM voyages_annules a
     WHERE a.annulee_le > now() - interval '90 days'
     ORDER BY a.annulee_le DESC

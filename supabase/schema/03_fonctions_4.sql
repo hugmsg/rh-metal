@@ -1151,3 +1151,39 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'n', n);
 END;
 $function$;
+
+CREATE OR REPLACE FUNCTION public.voyage_livraison(p_numero_lv text, p_type text, p_min date, p_max date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_type text := NULLIF(btrim(coalesce(p_type, '')), '');
+BEGIN
+  IF coalesce(btrim(p_numero_lv), '') = '' THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'numero_lv manquant');
+  END IF;
+  IF v_type IS NOT NULL AND v_type <> ALL (ARRAY['le', 'avant', 'apartir', 'semaine', 'aucune']) THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'consigne inconnue : ' || v_type);
+  END IF;
+  IF p_min IS NOT NULL AND p_max IS NOT NULL AND p_min > p_max THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'date au plus tôt après la date au plus tard');
+  END IF;
+
+  UPDATE voyages
+     SET livraison_type   = v_type,
+         livraison_min    = CASE WHEN v_type = 'aucune' THEN NULL ELSE p_min END,
+         livraison_max    = CASE WHEN v_type = 'aucune' THEN NULL ELSE p_max END,
+         livraison_prevue = CASE WHEN v_type IS NULL THEN livraison_prevue
+                                 WHEN v_type = 'aucune' THEN NULL
+                                 ELSE coalesce(p_max, p_min) END
+   WHERE numero_lv = p_numero_lv;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'message', 'numero_lv introuvable : ' || p_numero_lv);
+  END IF;
+  RETURN jsonb_build_object('ok', true);
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('ok', false, 'message', sqlerrm);
+END;
+$function$;

@@ -603,6 +603,10 @@ CREATE TABLE public.voyages (
   destination_lat numeric,
   destination_lon numeric,
   livraison_prevue date,
+  livraison_type text,
+  livraison_min date,
+  livraison_max date,
+  CONSTRAINT voyages_livraison_type_check CHECK (((livraison_type IS NULL) OR (livraison_type = ANY (ARRAY['le'::text, 'avant'::text, 'apartir'::text, 'semaine'::text, 'aucune'::text])))),
   CONSTRAINT voyages_numero_lv_key UNIQUE (numero_lv),
   CONSTRAINT voyages_pkey PRIMARY KEY (id),
   CONSTRAINT voyages_type_check CHECK ((type = ANY (ARRAY['LV'::text, 'CMR'::text])))
@@ -635,6 +639,9 @@ CREATE TABLE public.voyages_annules (
   annulee_par text,
   motif text NOT NULL,
   remplacee_par text,
+  livraison_type text,
+  livraison_min date,
+  livraison_max date,
   CONSTRAINT voyages_annules_pkey PRIMARY KEY (numero_lv)
 );
 ALTER TABLE public.voyages_annules ENABLE ROW LEVEL SECURITY;
