@@ -35,11 +35,11 @@ Deno.serve(async (req: Request) => {
     const { employe_id } = await req.json();
     if (!employe_id) return json({ ok: false, message: "employe_id requis" }, 400);
 
-    // Clé secrète « default » (nouvelles clés, 2026-10-26) ; repli sur l'ancienne
-    // service_role tant qu'elle existe (désactivée fin 2026).
+    // Clé secrète « default » (nouvelles clés, 2026-10-26). Les anciennes clés JWT
+    // (anon / service_role) sont désactivées depuis le 2026-11-25 : plus de repli.
     let cleSecrete = "";
-    try { cleSecrete = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}")["default"] || ""; } catch (_) { /* repli */ }
-    if (!cleSecrete) cleSecrete = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    try { cleSecrete = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}")["default"] || ""; } catch (_) { /* absente */ }
+    if (!cleSecrete) return json({ ok: false, message: "Erreur serveur (clé secrète absente)" }, 500);
 
     const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, cleSecrete);
 
